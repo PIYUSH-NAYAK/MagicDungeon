@@ -5,7 +5,7 @@ import { useControls } from "leva";
 import { useEffect, useRef, useState } from "react";
 import { MathUtils, Vector3 } from "three";
 import { degToRad } from "three/src/math/MathUtils.js";
-import { useSocket } from "./SocketManager";
+import { useGame } from "../context/GameContext";
 import { Character } from "./Character";
 
 const normalizeAngle = (angle) => {
@@ -16,20 +16,18 @@ const normalizeAngle = (angle) => {
 
 const lerpAngle = (start, end, t) => {
   start = normalizeAngle(start);
-  end = normalizeAngle(end);
-
+  end   = normalizeAngle(end);
   if (Math.abs(end - start) > Math.PI) {
-    if (end > start) {
-      start += 2 * Math.PI;
-    } else {
-      end += 2 * Math.PI;
-    }
+    if (end > start) start += 2 * Math.PI;
+    else end += 2 * Math.PI;
   }
-
   return normalizeAngle(start + (end - start) * t);
 };
 
-export const CharacterController = () => {
+const KILL_RANGE   = 2.5;
+const REPORT_RANGE = 3.0;
+
+export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
   const { WALK_SPEED, RUN_SPEED, ROTATION_SPEED } = useControls(
     "Character Control",
     {
@@ -43,119 +41,127 @@ export const CharacterController = () => {
       },
     }
   );
-  const rb = useRef();
+
+  const rb        = useRef();
   const container = useRef();
   const character = useRef();
 
-  const [animation, setAnimation] = useState("idle");
+  // useState drives local Character render; animRef is read synchronously inside useFrame
+  const [animationState, setAnimationState] = useState("idle");
+  const animRef = useRef("idle");
 
   const characterRotationTarget = useRef(0);
-  const rotationTarget = useRef(0);
-  const cameraTarget = useRef();
-  const cameraPosition = useRef();
-  const cameraWorldPosition = useRef(new Vector3());
+  const rotationTarget          = useRef(0);
+  const cameraTarget            = useRef();
+  const cameraPosition          = useRef();
+  const cameraWorldPosition     = useRef(new Vector3());
   const cameraLookAtWorldPosition = useRef(new Vector3());
-  const cameraLookAt = useRef(new Vector3());
-  const [, get] = useKeyboardControls();
-  const isClicking = useRef(false);
+  const cameraLookAt            = useRef(new Vector3());
+  const [, get]                 = useKeyboardControls();
+  const isClicking              = useRef(false);
 
-  const { socket } = useSocket();
+  const { emitMove, myPlayer, room, myId, isAlive, playerTransformsRef } = useGame();
+
+  // Track nearby players/corpses
+  const nearbyPlayerRef = useRef(null);
+  const nearbyDeadRef   = useRef(null);
 
   useEffect(() => {
-    const onMouseDown = (e) => {
-      isClicking.current = true;
-    };
-    const onMouseUp = (e) => {
-      isClicking.current = false;
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("mouseup", onMouseUp);
-    // touch
+    const onMouseDown = () => { isClicking.current = true; };
+    const onMouseUp   = () => { isClicking.current = false; };
+    document.addEventListener("mousedown",  onMouseDown);
+    document.addEventListener("mouseup",    onMouseUp);
     document.addEventListener("touchstart", onMouseDown);
-    document.addEventListener("touchend", onMouseUp);
+    document.addEventListener("touchend",   onMouseUp);
     return () => {
-      document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mousedown",  onMouseDown);
+      document.removeEventListener("mouseup",    onMouseUp);
       document.removeEventListener("touchstart", onMouseDown);
-      document.removeEventListener("touchend", onMouseUp);
+      document.removeEventListener("touchend",   onMouseUp);
     };
   }, []);
 
   useFrame(({ camera, mouse }) => {
-    if (rb.current) {
-      const vel = rb.current.linvel();
+    if (!rb.current || !character.current || !container.current) return;
 
-      const movement = {
-        x: 0,
-        z: 0,
-      };
+    const vel      = rb.current.linvel();
+    const movement = { x: 0, z: 0 };
 
-      if (get().forward) {
-        movement.z = 1;
-      }
-      if (get().backward) {
-        movement.z = -1;
-      }
+    if (isAlive) {
+      if (get().forward)  movement.z =  1;
+      if (get().backward) movement.z = -1;
 
       let speed = get().run ? RUN_SPEED : WALK_SPEED;
 
       if (isClicking.current) {
-        console.log("clicking", mouse.x, mouse.y);
-        if (Math.abs(mouse.x) > 0.1) {
-          movement.x = -mouse.x;
-        }
+        if (Math.abs(mouse.x) > 0.1) movement.x = -mouse.x;
         movement.z = mouse.y + 0.4;
-        if (Math.abs(movement.x) > 0.5 || Math.abs(movement.z) > 0.5) {
-          speed = RUN_SPEED;
-        }
+        if (Math.abs(movement.x) > 0.5 || Math.abs(movement.z) > 0.5) speed = RUN_SPEED;
       }
 
-      if (get().left) {
-        movement.x = 1;
+      if (get().left)  movement.x =  1;
+      if (get().right) movement.x = -1;
+    }
+
+    if (movement.x !== 0) rotationTarget.current += ROTATION_SPEED * movement.x;
+
+    if (movement.x !== 0 || movement.z !== 0) {
+      characterRotationTarget.current = Math.atan2(movement.x, movement.z);
+      vel.x = Math.sin(rotationTarget.current + characterRotationTarget.current) * (get().run ? RUN_SPEED : WALK_SPEED);
+      vel.z = Math.cos(rotationTarget.current + characterRotationTarget.current) * (get().run ? RUN_SPEED : WALK_SPEED);
+
+      // Update ref synchronously so emitMove gets the correct value this frame
+      const nextAnim = get().run ? "run" : "walk";
+      if (animRef.current !== nextAnim) {
+        animRef.current = nextAnim;
+        setAnimationState(nextAnim);
       }
-      if (get().right) {
-        movement.x = -1;
+    } else {
+      vel.x = 0; vel.z = 0;
+      if (animRef.current !== "idle") {
+        animRef.current = "idle";
+        setAnimationState("idle");
+      }
+    }
+
+    character.current.rotation.y = lerpAngle(
+      character.current.rotation.y,
+      characterRotationTarget.current,
+      0.1
+    );
+
+    rb.current.setLinvel(vel, true);
+
+    const pos = rb.current.translation();
+    // Use animRef.current (synchronous) instead of animation state (stale)
+    emitMove([pos.x, pos.y, pos.z], character.current.rotation.y, animRef.current);
+
+    // ── Proximity checks ──────────────────────────────────────────────────
+    if (room) {
+      const myPos = [pos.x, pos.y, pos.z];
+      let closestAlive = null, closestAliveDist = Infinity;
+      let closestDead  = null, closestDeadDist  = Infinity;
+
+      for (const [id, p] of Object.entries(room.players)) {
+        if (id === myId) continue;
+        // Read position from the live transform Map (never stale)
+        const t = playerTransformsRef.current.get(id);
+        if (!t?.position) continue;
+        const dx = myPos[0] - t.position[0];
+        const dz = myPos[2] - t.position[2];
+        const d  = Math.sqrt(dx * dx + dz * dz);
+
+        if (p.alive  && d < KILL_RANGE   && d < closestAliveDist) { closestAliveDist = d; closestAlive = id; }
+        if (!p.alive && d < REPORT_RANGE && d < closestDeadDist)  { closestDeadDist  = d; closestDead  = id; }
       }
 
-      if (movement.x !== 0) {
-        rotationTarget.current += ROTATION_SPEED * movement.x;
+      if (closestAlive !== nearbyPlayerRef.current) {
+        nearbyPlayerRef.current = closestAlive;
+        onNearbyPlayer?.(closestAlive);
       }
-
-      if (movement.x !== 0 || movement.z !== 0) {
-        characterRotationTarget.current = Math.atan2(movement.x, movement.z);
-        vel.x =
-          Math.sin(rotationTarget.current + characterRotationTarget.current) *
-          speed;
-        vel.z =
-          Math.cos(rotationTarget.current + characterRotationTarget.current) *
-          speed;
-        if (speed === RUN_SPEED) {
-          setAnimation("run");
-        } else {
-          setAnimation("walk");
-        }
-      } else {
-        setAnimation("idle");
-      }
-      character.current.rotation.y = lerpAngle(
-        character.current.rotation.y,
-        characterRotationTarget.current,
-        0.1
-      );
-
-      rb.current.setLinvel(vel, true);
-
-      if (socket) {
-        // Emit movement data
-        // We only emit if we are moving or if we need to sync idle state periodically
-        // But for simplicity, we emit every frame or key frame. 
-        // Ideally checking if position/rotation changed significantly.
-        const position = rb.current.translation();
-        socket.emit("move", {
-          position: [position.x, position.y, position.z],
-          rotation: character.current.rotation.y, // Send character rotation, not container
-          animation,
-        });
+      if (closestDead !== nearbyDeadRef.current) {
+        nearbyDeadRef.current = closestDead;
+        onNearbyDead?.(closestDead);
       }
     }
 
@@ -172,33 +178,45 @@ export const CharacterController = () => {
     if (cameraTarget.current) {
       cameraTarget.current.getWorldPosition(cameraLookAtWorldPosition.current);
       cameraLookAt.current.lerp(cameraLookAtWorldPosition.current, 0.1);
-
       camera.lookAt(cameraLookAt.current);
     }
   });
 
+  // Use server-assigned ring slot (x/z spread) but clamp y to 3 (safe above floor)
+  const [spawnPos] = useState(() => {
+    const p = room?.players?.[myId];
+    if (p?.position) return [p.position[0], 3, p.position[2]];
+    return [0, 3, 0];
+  });
+
   return (
-    <RigidBody colliders={false} lockRotations ref={rb}>
+    <RigidBody colliders={false} lockRotations ref={rb} position={spawnPos}>
       <group ref={container}>
         <group ref={cameraTarget} position-z={1.5} />
         <group ref={cameraPosition} position-y={4} position-z={-4} />
         <group ref={character}>
-          <Character scale={0.18} position-y={-0.25} animation={animation} />
-          {/* Local Player Tag */}
+          <Character
+            scale={0.18}
+            position-y={-0.25}
+            animation={animationState}
+            color={myPlayer.color}
+          />
+          {/* Name tag */}
           <Html position={[0, 2.2, 0]} center distanceFactor={10}>
-             <div style={{ 
-               fontFamily: 'Arial, sans-serif',
-               fontWeight: 'bold',
-               color: '#4ade80', 
-               backgroundColor: 'rgba(0,0,0,0.6)', 
-               padding: '4px 8px', 
-               borderRadius: '12px',
-               fontSize: '12px',
-               whiteSpace: 'nowrap',
-               userSelect: 'none'
-             }}>
-               YOU
-             </div>
+            <div style={{
+              fontFamily: "Arial, sans-serif",
+              fontWeight: "bold",
+              color: myPlayer.color || "#4ade80",
+              backgroundColor: "rgba(0,0,0,0.65)",
+              padding: "3px 8px",
+              borderRadius: "12px",
+              fontSize: "11px",
+              whiteSpace: "nowrap",
+              userSelect: "none",
+              border: `1px solid ${myPlayer.color || "#4ade80"}55`,
+            }}>
+              {myPlayer.name || "YOU"} <span style={{ opacity: .6, fontSize: 9 }}>(you)</span>
+            </div>
           </Html>
         </group>
       </group>

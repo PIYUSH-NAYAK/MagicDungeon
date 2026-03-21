@@ -8,17 +8,25 @@ import React, { useEffect, useRef, useMemo } from "react";
 import { useGraph } from "@react-three/fiber";
 import { SkeletonUtils } from "three-stdlib";
 
-export function Character({ animation, ...props }) {
+export function Character({ animation, color, ...props }) {
   const group = useRef();
   const { scene, materials, animations } = useGLTF("/models/character.glb");
   const clone = useMemo(() => SkeletonUtils.clone(scene), [scene]);
   const { nodes } = useGraph(clone);
-  
+
+  // Clone material per instance so skinned mesh bone matrices don't overwrite each other
+  const mat = useMemo(() => {
+    const m = materials.Material.clone();
+    if (color) m.color.set(color);
+    return m;
+  }, [materials.Material, color]);
+
   const { actions } = useAnimations(animations, group);
   useEffect(() => {
     actions[animation]?.reset().fadeIn(0.24).play();
     return () => actions?.[animation]?.fadeOut(0.24);
   }, [animation]);
+
   return (
     <group ref={group} {...props} dispose={null}>
       <group name="Scene">
@@ -27,7 +35,7 @@ export function Character({ animation, ...props }) {
           <skinnedMesh
             name="body"
             geometry={nodes.body.geometry}
-            material={materials.Material}
+            material={mat}
             skeleton={nodes.body.skeleton}
             castShadow
             receiveShadow
@@ -35,7 +43,7 @@ export function Character({ animation, ...props }) {
           <skinnedMesh
             name="eye"
             geometry={nodes.eye.geometry}
-            material={materials.Material}
+            material={mat}
             skeleton={nodes.eye.skeleton}
             castShadow
             receiveShadow
@@ -43,7 +51,7 @@ export function Character({ animation, ...props }) {
           <skinnedMesh
             name="hand-"
             geometry={nodes["hand-"].geometry}
-            material={materials.Material}
+            material={mat}
             skeleton={nodes["hand-"].skeleton}
             castShadow
             receiveShadow
@@ -51,7 +59,7 @@ export function Character({ animation, ...props }) {
           <skinnedMesh
             name="leg"
             geometry={nodes.leg.geometry}
-            material={materials.Material}
+            material={mat}
             skeleton={nodes.leg.skeleton}
             castShadow
             receiveShadow
