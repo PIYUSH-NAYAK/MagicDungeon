@@ -26,6 +26,7 @@ const keyboardMap = [
   { name: "right",    keys: ["ArrowRight", "KeyD"] },
   { name: "run",      keys: ["Shift"] },
   { name: "interact", keys: ["KeyE"] },
+  { name: "jump",     keys: ["Space"] },
 ];
 
 const SCREENS = {
@@ -80,10 +81,7 @@ function GameRouter() {
 }
 
 function App() {
-  // ?test in URL → skip all wallet/lobby flow, go straight to 3D map tester
-  if (new URLSearchParams(window.location.search).has("test")) {
-    return <MapTestScreen />;
-  }
+  if (new URLSearchParams(window.location.search).has("test")) return <MapTestScreen />;
 
   return (
     <WalletProvider>

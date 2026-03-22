@@ -41,9 +41,10 @@ function assignRoles(room) {
     room.players[shuffled[i]].role     = i < impostorCount ? "impostor" : "crewmate";
     room.players[shuffled[i]].alive    = true;
     room.players[shuffled[i]].votedFor = null;
-    room.players[shuffled[i]].tasks    = { completed: 0, total: 3 };
+    room.players[shuffled[i]].tasks    = { completed: [], total: 3 };
   }
-  room.taskProgress    = { completed: 0, total: pids.length * 3 };
+  const crewmateCount  = Object.values(room.players).filter(p => p.role === "crewmate").length;
+  room.taskProgress    = { completed: 0, total: crewmateCount * 3 };
   room.votes           = {};
   room.meetingCallerId = null;
   room.meetingVictimId = null;
@@ -134,7 +135,7 @@ io.on("connection", (socket) => {
       hostId: socket.id,
       phase: "lobby",
       gameMode: "impostor",
-      map: "castle_on_hills",
+      map: "medieval_fantasy_book",
       chainGameId: chainGameId || String(Date.now()),  // use host-provided ID so all clients share same on-chain game
       delegatedPlayers: {},             // tracks which players completed on-chain delegation
       allDelegated: false,
@@ -153,7 +154,7 @@ io.on("connection", (socket) => {
           alive: true,
           role: null,
           votedFor: null,
-          tasks:    { completed: 0, total: 3 },
+          tasks:    { completed: [], total: 3 },
           position: spawnPosition(0),
           rotation: 0,
           animation: "idle",
@@ -187,7 +188,7 @@ io.on("connection", (socket) => {
       alive: true,
       role: null,
       votedFor: null,
-      tasks:    { completed: 0, total: 3 },
+      tasks:    { completed: [], total: 3 },
       position: spawnPosition(playerCount),   // unique ring slot
       rotation: 0,
       animation: "idle",
@@ -317,9 +318,10 @@ io.on("connection", (socket) => {
             room.players[pid].role     = (wp && room._erRoles[wp]) || "crewmate";
             room.players[pid].alive    = true;
             room.players[pid].votedFor = null;
-            room.players[pid].tasks    = { completed: 0, total: 3 };
+            room.players[pid].tasks    = { completed: [], total: 3 };
           });
-          room.taskProgress    = { completed: 0, total: pids.length * 3 };
+          const crewmates      = pids.filter(pid => room.players[pid].role === "crewmate");
+          room.taskProgress    = { completed: 0, total: crewmates.length * 3 };
           room.votes           = {};
           room.meetingCallerId = null;
           room.meetingVictimId = null;
@@ -394,6 +396,7 @@ io.on("connection", (socket) => {
     room.meetingVictimId = bodyId;
     room.votes = {};
     room.phase = "meeting";
+    room._meetingResolved = false;
     broadcastRoom(code);
     io.to(code).emit("meetingCalled", {
       callerId: socket.id, callerName: reporter.name,
@@ -413,6 +416,7 @@ io.on("connection", (socket) => {
     room.meetingVictimId = null;
     room.votes = {};
     room.phase = "meeting";
+    room._meetingResolved = false;
     broadcastRoom(code);
     io.to(code).emit("meetingCalled", {
       callerId: socket.id, callerName: caller.name,
@@ -445,7 +449,8 @@ io.on("connection", (socket) => {
     if (!room) return;
     const player = room.players[socket.id];
     if (!player?.alive || player.role !== "crewmate") return;
-    player.tasks.completed       = Math.min(player.tasks.completed + 1, player.tasks.total);
+    if (player.tasks.completed.includes(taskIndex)) return; // already done — ignore duplicate
+    player.tasks.completed.push(taskIndex);
     room.taskProgress.completed  = Math.min(room.taskProgress.completed + 1, room.taskProgress.total);
     broadcastRoom(code);
     io.to(code).emit("taskCompleted", { playerId: socket.id, taskIndex, taskProgress: room.taskProgress });
@@ -469,7 +474,7 @@ io.on("connection", (socket) => {
       room.players[pid].alive      = true;
       room.players[pid].votedFor   = null;
       room.players[pid].ready      = false;
-      room.players[pid].tasks      = { completed: 0, total: 3 };
+      room.players[pid].tasks      = { completed: [], total: 3 };
       room.players[pid].position   = spawnPosition(i);
     });
     broadcastRoom(code);
@@ -545,36 +550,59 @@ function startMeetingTimer(code) {
 // ─── Meeting resolution ───────────────────────────────────────────────────────
 function resolveMeeting(code) {
   const room = rooms[code];
-  if (!room) return;
+  if (!room || room._meetingResolved) return;
+  room._meetingResolved = true;
+
+  if (room._meetingTimer) { clearInterval(room._meetingTimer); room._meetingTimer = null; }
+
   const tally = {};
   for (const v of Object.values(room.votes)) {
     tally[v] = (tally[v] || 0) + 1;
   }
-  let maxVotes = 0, ejected = null, tie = false;
+
+  const skipCount = tally["skip"] || 0;
+  let maxVotes = 0, ejectedId = null, tie = false;
   for (const [targetId, count] of Object.entries(tally)) {
     if (targetId === "skip") continue;
-    if (count > maxVotes)        { maxVotes = count; ejected = targetId; tie = false; }
-    else if (count === maxVotes) { tie = true; }
+    if (count > maxVotes)        { maxVotes = count; ejectedId = targetId; tie = false; }
+    else if (count === maxVotes) { tie = true; ejectedId = null; }
   }
-  if (tie) ejected = null;
 
-  const result = {
-    ejected: ejected ? { id: ejected, name: room.players[ejected]?.name, role: room.players[ejected]?.role } : null,
-    tally, tie,
-  };
-  if (ejected && room.players[ejected]) {
-    room.players[ejected].alive     = false;
-    room.players[ejected].animation = "idle";
+  // Skip wins if: no votes, tie, or skips >= top player votes
+  if (maxVotes === 0 || tie || skipCount >= maxVotes) ejectedId = null;
+
+  const ejectedPlayer = ejectedId ? room.players[ejectedId] : null;
+  if (ejectedId && ejectedPlayer) {
+    ejectedPlayer.alive     = false;
+    ejectedPlayer.animation = "idle";
   }
-  for (const pid of Object.keys(room.players)) { room.players[pid].votedFor = null; }
+
+  for (const pid of Object.keys(room.players)) room.players[pid].votedFor = null;
   room.votes = {};
-  io.to(code).emit("meetingResult", result);
 
   const winner = checkWinCondition(room);
+
+  io.to(code).emit("meetingResult", {
+    ejected: ejectedPlayer ? { id: ejectedId, name: ejectedPlayer.name, role: ejectedPlayer.role } : null,
+    tally,
+    skipCount,
+    tie: !ejectedId && maxVotes > 0 && skipCount < maxVotes,
+    winner: winner || null,
+  });
+
   if (winner) {
-    setTimeout(() => { room.phase = "results"; room.winner = winner; broadcastRoom(code); }, 4000);
+    setTimeout(() => {
+      if (!rooms[code]) return;
+      rooms[code].phase  = "results";
+      rooms[code].winner = winner;
+      broadcastRoom(code);
+    }, 6000);
   } else {
-    setTimeout(() => { room.phase = "playing"; broadcastRoom(code); }, 4000);
+    setTimeout(() => {
+      if (!rooms[code]) return;
+      rooms[code].phase = "playing";
+      broadcastRoom(code);
+    }, 6000);
   }
 }
 

@@ -6,7 +6,7 @@ import {
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import "@solana/wallet-adapter-react-ui/styles.css";
 
-const DEVNET_ENDPOINT = "https://api.devnet.solana.com";
+const DEVNET_ENDPOINT = import.meta.env.VITE_SOLANA_RPC_URL || "https://api.devnet.solana.com";
 
 export function WalletProvider({ children }) {
   const config = useMemo(() => ({

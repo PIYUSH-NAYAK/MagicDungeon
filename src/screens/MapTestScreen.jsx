@@ -43,6 +43,7 @@ const KEYBOARD_MAP = [
   { name: "left",     keys: ["ArrowLeft", "KeyA"] },
   { name: "right",    keys: ["ArrowRight","KeyD"] },
   { name: "run",      keys: ["Shift"] },
+  { name: "jump",     keys: ["Space"] },
 ];
 
 const COLORS = ["#e74c3c","#3498db","#2ecc71","#9b59b6","#f39c12"];
@@ -62,6 +63,7 @@ function TestCharacter({ ghost, color, spawnPos, onPosition }) {
   const camLookAt     = useRef(new Vector3());
   const camLookAtWorld= useRef(new Vector3());
   const isClicking    = useRef(false);
+  const jumped        = useRef(false);
   const [, get]       = useKeyboardControls();
 
   const WALK = 0.8, RUN = 1.6, ROT = degToRad(0.5);
@@ -102,7 +104,15 @@ function TestCharacter({ ghost, color, spawnPos, onPosition }) {
       if (animRef.current !== "idle") { animRef.current = "idle"; setAnim("idle"); }
     }
     character.current.rotation.y = lerpAngle(character.current.rotation.y, charRotTarget.current, 0.1);
-    if (ghost) vel.y = Math.sin(clock.elapsedTime * 2.2) * 0.3;
+    if (ghost) {
+      vel.y = Math.sin(clock.elapsedTime * 2.2) * 0.3;
+    } else {
+      if (get().jump && !jumped.current && Math.abs(vel.y) < 0.1) {
+        vel.y = 2.5;
+        jumped.current = true;
+      }
+      if (Math.abs(vel.y) < 0.1) jumped.current = false;
+    }
     rb.current.setLinvel(vel, true);
     container.current.rotation.y = MathUtils.lerp(container.current.rotation.y, rotTarget.current, 0.1);
     cameraPos.current.getWorldPosition(camWorldPos.current);
@@ -227,7 +237,7 @@ export function MapTestScreen() {
           <span style={{ color:"#2ecc71" }}>x={pos[0]} y={pos[1]} z={pos[2]}</span>
         </div>
 
-        <div style={{ color:"rgba(255,255,255,.3)", fontSize:10 }}>WASD / drag · Shift=run</div>
+        <div style={{ color:"rgba(255,255,255,.3)", fontSize:10 }}>WASD / drag · Shift=run · Space=jump</div>
         <a href="/" style={{ color:"#9b59b6", textDecoration:"none", fontSize:11, marginTop:4 }}>
           ← Back to game
         </a>

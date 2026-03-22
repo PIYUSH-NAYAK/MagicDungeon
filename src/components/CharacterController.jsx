@@ -51,6 +51,7 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
 
   const [, get]    = useKeyboardControls();
   const isClicking = useRef(false);
+  const jumped     = useRef(false);
 
   const { emitMove, myPlayer, room, myId, isAlive, playerTransformsRef } = useGame();
 
@@ -113,9 +114,15 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
       character.current.rotation.y, characterRotationTarget.current, 0.1,
     );
 
-    // Ghost float
+    // Ghost float / jump
     if (!isAlive) {
-      vel.y = Math.sin(clock.elapsedTime * 2.2) * 0.3; // gentle bob via physics velocity
+      vel.y = Math.sin(clock.elapsedTime * 2.2) * 0.3;
+    } else {
+      if (get().jump && !jumped.current && Math.abs(vel.y) < 0.1) {
+        vel.y = 2.5;
+        jumped.current = true;
+      }
+      if (Math.abs(vel.y) < 0.1) jumped.current = false;
     }
 
     rb.current.setLinvel(vel, true);

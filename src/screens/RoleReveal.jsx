@@ -18,11 +18,9 @@ export function RoleReveal() {
   const [visible, setVisible] = useState(false);
   const [countdown, setCountdown] = useState(5);
 
-  // ER role is authoritative; fall back to socket-assigned role while TX confirms
   const resolvedRole = chain?.erRole ?? myRole;
   const isImpostor   = resolvedRole === "impostor";
 
-  // Get fellow impostors from ER (blockchain) — server roles are redacted from room.players
   const fellows = isImpostor && chain?.allPlayerStates
     ? Object.entries(chain.allPlayerStates)
         .filter(([pk, ps]) => ps?.role?.impostor !== undefined && pk !== chain?.publicKey?.toBase58())
@@ -45,7 +43,6 @@ export function RoleReveal() {
     return () => clearInterval(tick);
   }, []);
 
-  // Dismiss only after countdown actually reaches 0 (outside the updater)
   useEffect(() => {
     if (countdown === 0) dismissRoleReveal();
   }, [countdown]);
@@ -68,10 +65,8 @@ export function RoleReveal() {
         transition: "opacity .6s ease",
       }}
     >
-      {/* Animated background circles */}
-      <div style={{
-        position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none",
-      }}>
+      {/* Animated background rings */}
+      <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
         {[...Array(6)].map((_, i) => (
           <div key={i} style={{
             position: "absolute",
@@ -85,25 +80,36 @@ export function RoleReveal() {
         ))}
       </div>
 
+      {/* Breathing background orb */}
+      <div className="orb" style={{
+        width: 500, height: 500,
+        top: "50%", left: "50%",
+        transform: "translate(-50%, -50%)",
+        background: isImpostor ? "rgba(231,76,60,0.12)" : "rgba(52,152,219,0.1)",
+        animationDuration: "4s",
+      }} />
+
       {/* Big icon */}
       <div style={{
         fontSize: "6rem",
         filter: `drop-shadow(0 0 30px ${accentColor})`,
         animation: "rolePop .6s cubic-bezier(.34,1.56,.64,1) forwards",
         lineHeight: 1,
+        zIndex: 1,
       }}>
         {isImpostor ? "💀" : "🛡️"}
       </div>
 
       {/* "You are..." */}
-      <div style={{ textAlign: "center" }}>
+      <div style={{ textAlign: "center", zIndex: 1 }}>
         <p style={{
           fontSize: ".9rem", letterSpacing: ".4em", textTransform: "uppercase",
           color: "rgba(255,255,255,.5)", marginBottom: ".6rem",
+          fontFamily: "'Rajdhani', sans-serif",
         }}>
           You are
         </p>
-        <h1 style={{
+        <h1 className="cinzel" style={{
           fontSize: "clamp(2.5rem, 8vw, 5rem)", fontWeight: 900,
           color: accentColor,
           textShadow: `0 0 40px ${glowColor}, 0 0 80px ${glowColor}`,
@@ -116,10 +122,12 @@ export function RoleReveal() {
 
       {/* Flavor text */}
       <p style={{
-        color: "rgba(255,255,255,.55)", fontSize: "1rem",
+        color: "rgba(255,255,255,.55)", fontSize: "1.05rem",
         fontStyle: "italic", maxWidth: 360, textAlign: "center",
+        fontFamily: "'Rajdhani', sans-serif", letterSpacing: ".05em",
+        zIndex: 1,
       }}>
-        {line}
+        "{line}"
       </p>
 
       {/* Fellow impostors */}
@@ -127,15 +135,16 @@ export function RoleReveal() {
         <div style={{
           background: "rgba(231,76,60,.12)", border: "1px solid rgba(231,76,60,.3)",
           borderRadius: 12, padding: "1rem 1.5rem", maxWidth: 320, textAlign: "center",
+          zIndex: 1,
         }}>
-          <p style={{ fontSize: ".8rem", color: "rgba(255,255,255,.5)", marginBottom: ".5rem", textTransform: "uppercase", letterSpacing: ".1em" }}>
+          <p style={{ fontSize: ".8rem", color: "rgba(255,255,255,.5)", marginBottom: ".5rem", textTransform: "uppercase", letterSpacing: ".1em", fontFamily: "'Rajdhani', sans-serif" }}>
             Your fellow impostors
           </p>
           <div style={{ display: "flex", gap: ".75rem", justifyContent: "center", flexWrap: "wrap" }}>
             {fellows.map(p => (
               <div key={p.id} style={{ display: "flex", alignItems: "center", gap: ".4rem" }}>
-                <div style={{ width: 16, height: 16, borderRadius: "50%", background: p.color }} />
-                <span style={{ fontSize: ".9rem", fontWeight: 600 }}>{p.name}</span>
+                <div style={{ width: 16, height: 16, borderRadius: "50%", background: p.color, boxShadow: `0 0 8px ${p.color}` }} />
+                <span style={{ fontSize: ".9rem", fontWeight: 600, fontFamily: "'Rajdhani', sans-serif" }}>{p.name}</span>
               </div>
             ))}
           </div>
@@ -146,9 +155,9 @@ export function RoleReveal() {
       {!isImpostor && (
         <div style={{
           background: "rgba(52,152,219,.12)", border: "1px solid rgba(52,152,219,.3)",
-          borderRadius: 12, padding: ".8rem 1.5rem", textAlign: "center",
+          borderRadius: 12, padding: ".8rem 1.5rem", textAlign: "center", zIndex: 1,
         }}>
-          <p style={{ fontSize: ".85rem", color: "rgba(255,255,255,.6)" }}>
+          <p style={{ fontSize: ".85rem", color: "rgba(255,255,255,.6)", fontFamily: "'Rajdhani', sans-serif" }}>
             🔧 Complete <strong style={{ color: "#3498db" }}>3 tasks</strong> to win — or find the impostor!
           </p>
         </div>
@@ -158,7 +167,8 @@ export function RoleReveal() {
       <p style={{
         position: "absolute", bottom: "2rem",
         fontSize: ".8rem", color: "rgba(255,255,255,.3)",
-        letterSpacing: ".05em",
+        letterSpacing: ".05em", fontFamily: "'Rajdhani', sans-serif",
+        zIndex: 1,
       }}>
         Tap anywhere to dismiss • auto-starts in {countdown}s
       </p>

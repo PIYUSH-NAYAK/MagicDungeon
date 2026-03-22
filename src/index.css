@@ -1,3 +1,6 @@
+/* ──────────────────── Google Fonts ──────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Rajdhani:wght@400;600;700&family=Inter:wght@400;600;700;900&display=swap');
+
 /* ──────────────────── Design Tokens ──────────────────── */
 :root {
   --bg:       #0a0a0f;
@@ -22,7 +25,7 @@
 
 html, body {
   width: 100%; height: 100%;
-  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Rajdhani', 'Inter', 'Segoe UI', system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
@@ -56,10 +59,20 @@ html, body {
   font-size: 1rem; font-weight: 600; cursor: pointer;
   transition: transform .15s, filter .15s, opacity .15s;
   letter-spacing: .02em;
+  position: relative; overflow: hidden;
 }
-.btn:hover  { filter: brightness(1.12); transform: translateY(-1px); }
+.btn::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.18) 50%, transparent 60%);
+  transform: translateX(-100%);
+  transition: transform .4s ease;
+}
+.btn:hover::after { transform: translateX(100%); }
+.btn:hover  { filter: brightness(1.15); transform: translateY(-2px); }
 .btn:active { transform: translateY(0);  filter: brightness(.95);    }
 .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.btn:disabled::after { display: none; }
 
 .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
 .btn-gold    { background: linear-gradient(135deg, var(--gold2), var(--gold));    color: #1a1200; }
@@ -87,6 +100,66 @@ html, body {
   animation: floatUp linear infinite;
 }
 
+/* ──────────────────── Stars ──────────────────── */
+.star {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  animation: twinkle ease-in-out infinite;
+}
+
+/* ──────────────────── Breathing Orbs ──────────────────── */
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  pointer-events: none;
+  animation: breathe ease-in-out infinite;
+}
+
+/* ──────────────────── CSS Crewmate ──────────────────── */
+.crewmate {
+  position: absolute;
+  pointer-events: none;
+  animation: crewBob ease-in-out infinite;
+}
+.crewmate-body {
+  width: 100%;
+  height: 62%;
+  background: currentColor;
+  border-radius: 50% 50% 30% 30% / 60% 60% 40% 40%;
+  position: relative;
+}
+.crewmate-head {
+  width: 80%;
+  height: 55%;
+  background: currentColor;
+  border-radius: 50% 50% 20% 20%;
+  position: absolute;
+  top: -48%;
+  left: 10%;
+}
+.crewmate-visor {
+  width: 62%;
+  height: 55%;
+  background: linear-gradient(135deg, #a8d8f8 0%, #5bb3e8 100%);
+  border-radius: 40% 40% 15% 15%;
+  position: absolute;
+  top: 18%;
+  left: 19%;
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.3);
+}
+.crewmate-backpack {
+  width: 28%;
+  height: 45%;
+  background: currentColor;
+  border-radius: 30% 50% 50% 30%;
+  filter: brightness(0.7);
+  position: absolute;
+  right: -24%;
+  bottom: 10%;
+}
+
 /* ──────────────────── Animations ──────────────────── */
 @keyframes floatUp {
   from { transform: translateY(100vh) scale(0); opacity: 0; }
@@ -100,6 +173,26 @@ html, body {
 @keyframes glitch2 { 0%,100%{clip-path:none}25%{clip-path:inset(40% 0 30% 0)}50%{clip-path:inset(10% 0 60% 0)}75%{clip-path:inset(70% 0 5% 0)} }
 @keyframes countPop { 0%{opacity:0;transform:scale(2.4);}50%{opacity:1;transform:scale(1);}80%{opacity:1;}100%{opacity:0;transform:scale(.6);} }
 @keyframes slideIn { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes twinkle { 0%,100%{opacity:.15;transform:scale(1);}50%{opacity:1;transform:scale(1.4);} }
+@keyframes breathe { 0%,100%{opacity:.12;transform:scale(1);}50%{opacity:.22;transform:scale(1.12);} }
+@keyframes crewBob { 0%,100%{transform:translateY(0) rotate(-3deg);}50%{transform:translateY(-18px) rotate(3deg);} }
+@keyframes shimmer { 0%{background-position:200% center}100%{background-position:-200% center} }
+@keyframes ripple  { 0%{transform:scale(0);opacity:.6;}100%{transform:scale(3.5);opacity:0;} }
+@keyframes spin    { from{transform:rotate(0deg);}to{transform:rotate(360deg);} }
 
 .animate-fadeIn  { animation: fadeIn  .5s ease both; }
 .animate-slideIn { animation: slideIn .4s ease both; }
+
+/* ──────────────────── Cinzel title ──────────────────── */
+.cinzel {
+  font-family: 'Cinzel Decorative', serif;
+}
+.shimmer-text {
+  font-family: 'Cinzel Decorative', serif;
+  background: linear-gradient(90deg, #f0c040, #ec4899, #a855f7, #f97316, #f0c040);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 4s linear infinite;
+}

@@ -78,6 +78,9 @@ export function GameProvider({ children }) {
   // Written by playerMoved (high-frequency). NEVER triggers React re-renders.
   const playerTransformsRef = useRef(new Map());
 
+  // Live position of the LOCAL player — updated every emitMove, never stale
+  const myPositionRef = useRef(null);
+
   // emitMove throttle: track last-sent time
   const lastMoveEmitRef = useRef(0);
   const MOVE_THROTTLE_MS = 50; // 20 fps max
@@ -496,7 +499,6 @@ export function GameProvider({ children }) {
   async function hostStartGame() {
     try {
       await chain.commands.startGame();   // Phantom popup — must be user gesture
-      await chain.syncAllState();         // fetch ER-assigned roles for all players
     } catch (e) {
       console.warn("[chain] startGame:", e.message);
       setError(`Start game failed: ${e.message}`);
@@ -504,8 +506,10 @@ export function GameProvider({ children }) {
       return;
     }
 
+    // fetch ER-assigned roles — use the returned map directly (React state update is async)
+    const allStates = await chain.syncAllState();
+
     // Sync ER roles to server so kill/win-condition logic uses the same assignment
-    const allStates = chain.allPlayerStates;
     if (allStates && Object.keys(allStates).length > 0) {
       const roles = {};
       for (const [pk, ps] of Object.entries(allStates)) {
@@ -527,6 +531,7 @@ export function GameProvider({ children }) {
 
   // Throttled to MOVE_THROTTLE_MS — plenty for smooth visual sync, ~20fps
   function emitMove(position, rotation, animation) {
+    myPositionRef.current = position;  // always up-to-date, unthrottled for local use
     const r = roomRef.current;
     if (!r) return;
     const now = Date.now();
@@ -612,6 +617,7 @@ export function GameProvider({ children }) {
       winner,
       COLORS,
       playerTransformsRef,   // ref to the live transform Map
+      myPositionRef,         // ref to the local player's current position (always fresh)
       createRoom, joinRoom, startGame,
       confirmCharacter, selectGameMode, selectMap,
       startCountdown, beginCountdown, hostStartGame, setReady,

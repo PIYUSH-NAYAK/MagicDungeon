@@ -102,6 +102,7 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
   const programERRef     = useRef(null);
   const providerERRef    = useRef(null);
   const subIds           = useRef([]);
+  const playerSubIds     = useRef({});
   const prevStatesRef    = useRef({});
   const prevGameStateRef = useRef(null);  // for alive[] diff (kill detection)
 
@@ -183,7 +184,7 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
         throw new Error(detail);
       }
 
-      const sig = await sendTransaction(tx, connection);
+      const sig = await sendTransaction(tx, connection, { skipPreflight: true });
       await connection.confirmTransaction(sig, "confirmed");
       onTxLog?.({ id, label, status: "confirmed", sig, isER: false });
       return sig;
@@ -199,11 +200,33 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     onTxLog?.({ id, label, status: "pending", isER: true });
     try {
       const er = providerERRef.current;
-      tx.recentBlockhash = (await er.connection.getLatestBlockhash()).blockhash;
+      const isNetErr = (e) => e.message?.includes("fetch") || e.message?.includes("network") || e.message?.includes("ERR_NETWORK") || e.name === "TypeError";
+
+      // Retry getLatestBlockhash — it also hits TEE over the network
+      let blockhash;
+      for (let a = 0; a < 4; a++) {
+        try { blockhash = (await er.connection.getLatestBlockhash()).blockhash; break; }
+        catch (e) { if (!isNetErr(e) || a === 3) throw e; await new Promise(r => setTimeout(r, 2000 * (a + 1))); }
+      }
+
+      // Sign once — Phantom shows only one popup per TX
+      tx.recentBlockhash = blockhash;
       tx.feePayer        = publicKey;
-      const signed = await signTransaction(tx);
-      const sig    = await er.connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
-      await er.connection.confirmTransaction(sig, "confirmed");
+      const signed     = await signTransaction(tx);
+      const serialized = signed.serialize();
+
+      // Retry only the network send/confirm — no re-signing needed
+      let sig;
+      for (let a = 0; a < 4; a++) {
+        try {
+          sig = await er.connection.sendRawTransaction(serialized, { skipPreflight: true });
+          await er.connection.confirmTransaction(sig, "confirmed");
+          break;
+        } catch (e) {
+          if (!isNetErr(e) || a === 3) throw e;
+          await new Promise(r => setTimeout(r, 2000 * (a + 1))); // 2s, 4s, 6s
+        }
+      }
       onTxLog?.({ id, label, status: "confirmed", sig, isER: true });
       return sig;
     } catch (e) {
@@ -251,6 +274,7 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       }
     }
     setAllPlayerStates(playerMap);
+    return playerMap;  // return directly so callers don't read stale React state
 
     try {
       const conn = pER ? providerERRef.current.connection : connection;
@@ -269,12 +293,42 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     } else { setVoteState(null); }
   }, [gameIdStr, gamePda, publicKey, connection]);
 
+  // ── Per-player ER subscriptions — no devnet polling per event ────────────
+  const subscribeToPlayers = useCallback((players) => {
+    const er = providerERRef.current;
+    if (!er || !programRef.current) return;
+    const current = playerSubIds.current;
+    const validPks = players
+      .filter(pk => !pk.equals(PublicKey.default))
+      .map(pk => pk.toBase58());
+    const newSet = new Set(validPks);
+    for (const [pk, id] of Object.entries(current)) {
+      if (!newSet.has(pk)) { er.connection.removeAccountChangeListener(id); delete current[pk]; }
+    }
+    for (const pkStr of validPks) {
+      if (current[pkStr] !== undefined) continue;
+      const playerPk = new PublicKey(pkStr);
+      const pda = getPlayerPda(gid, playerPk);
+      current[pkStr] = er.connection.onAccountChange(pda, info => {
+        if (!info) return;
+        try {
+          const d = programRef.current?.coder.accounts.decode("playerState", info.data);
+          if (!d) return;
+          setAllPlayerStates(prev => ({ ...prev, [pkStr]: d }));
+          if (publicKey && playerPk.equals(publicKey)) setPlayerState(d);
+        } catch {}
+      });
+    }
+  }, [gid, publicKey]);
+
   // ── ER subscriptions ──────────────────────────────────────────────────────
   const subscribe = useCallback(() => {
     const er = providerERRef.current;
     if (!er || !publicKey || !myPda) return;
     subIds.current.forEach(id => er.connection.removeAccountChangeListener(id));
     subIds.current = [];
+    Object.values(playerSubIds.current).forEach(id => er.connection.removeAccountChangeListener(id));
+    playerSubIds.current = {};
     const id1 = er.connection.onAccountChange(gamePda, info => {
       if (!info) return;
       try {
@@ -293,7 +347,8 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
         prevGameStateRef.current = next;
         setGameState(next);
         if (next.voteSession) setVoteSession(next.voteSession);
-        syncAllState();
+        // Subscribe to players via ER WebSocket — replaces syncAllState() devnet polling
+        subscribeToPlayers(next.players.slice(0, next.playerCount));
       } catch {}
     });
     const id2 = er.connection.onAccountChange(myPda, info => {
@@ -304,7 +359,10 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       } catch {}
     });
     subIds.current = [id1, id2];
-  }, [gamePda, myPda, publicKey, syncAllState]);
+    if (prevGameStateRef.current?.players) {
+      subscribeToPlayers(prevGameStateRef.current.players.slice(0, prevGameStateRef.current.playerCount));
+    }
+  }, [gamePda, myPda, publicKey, subscribeToPlayers]);
 
   // ─── Commands ─────────────────────────────────────────────────────────────
   const commands = {
@@ -313,7 +371,19 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       if (!publicKey || !signMessage) return;
       setIsLoading(true);
       try {
-        const auth = await getAuthToken(TEE_HTTP, publicKey, signMessage);
+        // Retry up to 4 times with 2s backoff — ERR_NETWORK_CHANGED can take several seconds to resolve
+        let auth, lastErr;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          try {
+            auth = await getAuthToken(TEE_HTTP, publicKey, signMessage);
+            break;
+          } catch (e) {
+            lastErr = e;
+            const isNetworkErr = e.message?.includes("fetch") || e.message?.includes("network") || e.message?.includes("ERR_NETWORK") || e.name === "TypeError";
+            if (!isNetworkErr || attempt === 3) throw e;
+            await new Promise(r => setTimeout(r, 2000 * (attempt + 1))); // 2s, 4s, 6s
+          }
+        }
         setTeeToken(auth.token);
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
@@ -359,22 +429,27 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       if (!programRef.current || !publicKey) return;
       setIsLoading(true);
       try {
-        const gameGroup = groupPdaFromId(gamePda);
-        const tx = new Transaction();
-        const groupIx = await getOrCreateGroupIx(gameGroup, gamePda);
-        if (groupIx) tx.add(groupIx);
-        const ix = await programRef.current.methods
-          .createPermission({ game: { gameId: gid } })
-          .accountsPartial({
-            payer:               publicKey,
-            permissionedAccount: gamePda,
-            permission:          permissionPdaFromAccount(gamePda),
-            group:               gameGroup,
-            systemProgram:       SystemProgram.programId,
-          })
-          .instruction();
-        tx.add(ix);
-        await sendBase(tx, "Create game permission");
+        const gameGroup  = groupPdaFromId(gamePda);
+        const permPda    = permissionPdaFromAccount(gamePda);
+        // Skip if permission already exists (e.g. repeated delegation)
+        const existing   = await connection.getAccountInfo(permPda);
+        if (!existing) {
+          const tx = new Transaction();
+          const groupIx = await getOrCreateGroupIx(gameGroup, gamePda);
+          if (groupIx) tx.add(groupIx);
+          const ix = await programRef.current.methods
+            .createPermission({ game: { gameId: gid } })
+            .accountsPartial({
+              payer:               publicKey,
+              permissionedAccount: gamePda,
+              permission:          permPda,
+              group:               gameGroup,
+              systemProgram:       SystemProgram.programId,
+            })
+            .instruction();
+          tx.add(ix);
+          await sendBase(tx, "Create game permission");
+        }
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
     },
@@ -412,21 +487,26 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       setIsLoading(true);
       try {
         const playerGroup = groupPdaFromId(publicKey);
-        const tx = new Transaction();
-        const groupIx = await getOrCreateGroupIx(playerGroup, publicKey);
-        if (groupIx) tx.add(groupIx);
-        const ix = await programRef.current.methods
-          .createPermission({ player: { gameId: gid, player: publicKey } })
-          .accountsPartial({
-            payer:               publicKey,
-            permissionedAccount: myPda,
-            permission:          permissionPdaFromAccount(myPda),
-            group:               playerGroup,
-            systemProgram:       SystemProgram.programId,
-          })
-          .instruction();
-        tx.add(ix);
-        await sendBase(tx, "Create player permission");
+        const permPda     = permissionPdaFromAccount(myPda);
+        // Skip if permission already exists (e.g. player rejoining a new game)
+        const existing    = await connection.getAccountInfo(permPda);
+        if (!existing) {
+          const tx = new Transaction();
+          const groupIx = await getOrCreateGroupIx(playerGroup, publicKey);
+          if (groupIx) tx.add(groupIx);
+          const ix = await programRef.current.methods
+            .createPermission({ player: { gameId: gid, player: publicKey } })
+            .accountsPartial({
+              payer:               publicKey,
+              permissionedAccount: myPda,
+              permission:          permPda,
+              group:               playerGroup,
+              systemProgram:       SystemProgram.programId,
+            })
+            .instruction();
+          tx.add(ix);
+          await sendBase(tx, "Create player permission");
+        }
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
     },

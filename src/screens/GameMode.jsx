@@ -7,35 +7,37 @@ const MODES = [
 ];
 
 const MAPS = [
-  { id: "castle_on_hills",          icon: "🏰", label: "Castle on Hills" },
-  { id: "animal_crossing_map",      icon: "🌿", label: "Animal Crossing" },
-  { id: "city_scene_tokyo",         icon: "🏙️", label: "Tokyo City"      },
-  { id: "de_dust_2_with_real_light",icon: "🏜️", label: "Dust II"         },
-  { id: "medieval_fantasy_book",    icon: "📖", label: "Fantasy Book"    },
+  { id: "medieval_fantasy_book", icon: "📖", label: "Fantasy Book"    },
+  { id: "castle_on_hills",       icon: "🏰", label: "Castle on Hills" },
+  { id: "city_scene_tokyo",      icon: "🏙️", label: "Tokyo City"      },
 ];
 
 export function GameMode() {
   const { room, isHost, selectGameMode, selectMap, startCountdown } = useGame();
   const selectedMode = room?.gameMode || "impostor";
-  const selectedMap  = room?.map      || "castle_on_hills";
+  const selectedMap  = room?.map      || "medieval_fantasy_book";
 
   return (
     <div className="screen" style={{
       background: "radial-gradient(ellipse at 50% 40%, #0d1426 0%, #0a0a0f 70%)",
       padding: "2rem", flexDirection: "column", gap: "1.5rem", overflowY: "auto",
     }}>
-      <div style={{ textAlign: "center" }} className="animate-fadeIn">
-        <h1 style={{ fontSize: "2rem", fontWeight: 800, marginBottom: ".3rem" }}>
+      {/* Breathing orbs */}
+      <div className="orb" style={{ width: 400, height: 400, top: "-15%", right: "-10%", background: "rgba(52,152,219,0.1)", animationDuration: "8s" }} />
+      <div className="orb" style={{ width: 350, height: 350, bottom: "-12%", left: "-8%", background: "rgba(124,58,237,0.12)", animationDuration: "6s", animationDelay: "2s" }} />
+
+      <div style={{ textAlign: "center", position: "relative", zIndex: 1 }} className="animate-fadeIn">
+        <h1 className="cinzel" style={{ fontSize: "2rem", fontWeight: 900, marginBottom: ".3rem", color: "var(--gold)" }}>
           {isHost ? "Game Setup" : "Waiting for host…"}
         </h1>
-        <p style={{ color: "var(--muted)", fontSize: ".9rem" }}>
+        <p style={{ color: "var(--muted)", fontSize: ".9rem", fontFamily: "'Rajdhani', sans-serif", letterSpacing: ".08em" }}>
           {isHost ? "Choose game mode and map" : "Host is configuring the game"}
         </p>
       </div>
 
       {/* ── Game Mode ──────────────────────────────────────────────────────── */}
-      <div style={{ width: "100%", maxWidth: 640 }}>
-        <p style={{ color: "var(--muted)", fontSize: ".78rem", fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", marginBottom: ".6rem" }}>
+      <div style={{ width: "100%", maxWidth: 640, position: "relative", zIndex: 1 }}>
+        <p style={{ color: "var(--muted)", fontSize: ".78rem", fontWeight: 700, letterSpacing: ".15em", textTransform: "uppercase", marginBottom: ".6rem", fontFamily: "'Rajdhani', sans-serif" }}>
           Game Mode
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: ".75rem" }}>
@@ -50,23 +52,41 @@ export function GameMode() {
                 borderRadius: "var(--radius)",
                 padding: "1.1rem 1rem", cursor: isHost ? "pointer" : "default",
                 textAlign: "left", transition: "all .22s",
-                transform: selectedMode === m.id ? "scale(1.02)" : "scale(1)",
-                boxShadow: selectedMode === m.id ? `0 4px 20px ${m.color}44` : "none",
+                transform: selectedMode === m.id ? "scale(1.03)" : "scale(1)",
+                boxShadow: selectedMode === m.id ? `0 4px 24px ${m.color}55` : "none",
+                position: "relative", overflow: "hidden",
               }}
             >
-              <div style={{ fontSize: "1.8rem", marginBottom: ".35rem" }}>{m.icon}</div>
-              <div style={{ fontWeight: 700, fontSize: ".95rem", color: selectedMode === m.id ? m.color : "var(--text)", marginBottom: ".25rem" }}>
+              {/* Accent bar */}
+              {selectedMode === m.id && (
+                <div style={{
+                  position: "absolute", top: 0, left: 0,
+                  width: "4px", height: "100%",
+                  background: m.color,
+                  borderRadius: "var(--radius) 0 0 var(--radius)",
+                }} />
+              )}
+              <div style={{ fontSize: "1.8rem", marginBottom: ".35rem", paddingLeft: selectedMode === m.id ? ".4rem" : 0 }}>{m.icon}</div>
+              <div style={{
+                fontWeight: 700, fontSize: ".95rem",
+                color: selectedMode === m.id ? m.color : "var(--text)",
+                marginBottom: ".25rem",
+                fontFamily: "'Rajdhani', sans-serif",
+                paddingLeft: selectedMode === m.id ? ".4rem" : 0,
+              }}>
                 {m.label}
               </div>
-              <div style={{ color: "var(--muted)", fontSize: ".78rem", lineHeight: 1.4 }}>{m.desc}</div>
+              <div style={{ color: "var(--muted)", fontSize: ".78rem", lineHeight: 1.4, paddingLeft: selectedMode === m.id ? ".4rem" : 0 }}>
+                {m.desc}
+              </div>
             </button>
           ))}
         </div>
       </div>
 
       {/* ── Map Picker ─────────────────────────────────────────────────────── */}
-      <div style={{ width: "100%", maxWidth: 640 }}>
-        <p style={{ color: "var(--muted)", fontSize: ".78rem", fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", marginBottom: ".6rem" }}>
+      <div style={{ width: "100%", maxWidth: 640, position: "relative", zIndex: 1 }}>
+        <p style={{ color: "var(--muted)", fontSize: ".78rem", fontWeight: 700, letterSpacing: ".15em", textTransform: "uppercase", marginBottom: ".6rem", fontFamily: "'Rajdhani', sans-serif" }}>
           Map
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: ".6rem" }}>
@@ -85,8 +105,9 @@ export function GameMode() {
                   borderRadius: 999, cursor: isHost ? "pointer" : "default",
                   color: active ? "#f1c40f" : "var(--text)",
                   fontWeight: active ? 700 : 400, fontSize: ".85rem",
+                  fontFamily: "'Rajdhani', sans-serif",
                   transition: "all .2s",
-                  boxShadow: active ? "0 0 14px rgba(241,196,15,.3)" : "none",
+                  boxShadow: active ? "0 0 18px rgba(241,196,15,.4)" : "none",
                 }}
               >
                 <span>{m.icon}</span>
@@ -99,20 +120,26 @@ export function GameMode() {
       </div>
 
       {/* ── Start (host only) ──────────────────────────────────────────────── */}
-      {isHost ? (
-        <button
-          className="btn btn-gold animate-fadeIn"
-          style={{ fontSize: "1.1rem", padding: ".9rem 2.5rem" }}
-          onClick={startCountdown}
-        >
-          🚀 &nbsp; Lock In &amp; Start!
-        </button>
-      ) : (
-        <div style={{ color: "var(--muted)", fontSize: ".9rem", display: "flex", alignItems: "center", gap: ".5rem" }} className="animate-fadeIn">
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#2ecc71", boxShadow: "0 0 8px #2ecc71", animation: "pulse 1.5s infinite" }} />
-          Waiting for host to start the game…
-        </div>
-      )}
+      <div style={{ position: "relative", zIndex: 1 }}>
+        {isHost ? (
+          <button
+            className="btn btn-gold animate-fadeIn"
+            style={{
+              fontSize: "1.1rem", padding: ".9rem 2.5rem",
+              fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: ".12em",
+              animation: "pulse 2s ease-in-out infinite",
+            }}
+            onClick={startCountdown}
+          >
+            🚀 &nbsp; Lock In &amp; Start!
+          </button>
+        ) : (
+          <div style={{ color: "var(--muted)", fontSize: ".9rem", display: "flex", alignItems: "center", gap: ".5rem", fontFamily: "'Rajdhani', sans-serif" }} className="animate-fadeIn">
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#2ecc71", boxShadow: "0 0 8px #2ecc71", animation: "pulse 1.5s infinite" }} />
+            Waiting for host to start the game…
+          </div>
+        )}
+      </div>
     </div>
   );
 }

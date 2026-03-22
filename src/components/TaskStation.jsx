@@ -1,5 +1,5 @@
 import { Html } from "@react-three/drei";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useGame } from "../context/GameContext";
 
@@ -27,6 +27,8 @@ const TASK_MINI_GAMES = [
 function TaskMiniGame({ task, onComplete, onClose }) {
   const [input, setInput] = useState([]);
   const [shake, setShake] = useState(false);
+  // Shuffle once on mount — not every render
+  const shuffledButtons = useMemo(() => [...task.sequence].sort(() => Math.random() - 0.5), [task]);
 
   function press(symbol) {
     const next = [...input, symbol];
@@ -98,9 +100,9 @@ function TaskMiniGame({ task, onComplete, onClose }) {
           ))}
         </div>
 
-        {/* Buttons — shuffled order */}
+        {/* Buttons — shuffled order (stable, not reshuffled on re-render) */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: ".65rem" }}>
-          {[...task.sequence].sort(() => Math.random() - 0.5).map((symbol, i) => (
+          {shuffledButtons.map((symbol, i) => (
             <button
               key={i}
               onClick={() => press(symbol)}
@@ -137,25 +139,27 @@ function TaskMiniGame({ task, onComplete, onClose }) {
  * On E press → opens mini-game modal.
  */
 export function TaskStation({ position, taskIndex, onComplete }) {
-  const { isAlive, myRole, completeTask, room, myId } = useGame();
+  const { isAlive, myRole, completeTask, room, myId, myPositionRef } = useGame();
   const meshRef   = useRef();
   const [near, setNear]   = useState(false);
   const [open, setOpen]   = useState(false);
-  const [done, setDone]   = useState(false);
   const task = TASK_MINI_GAMES[taskIndex % TASK_MINI_GAMES.length];
+
+  // Derive done from server — survives remounts and is authoritative
+  const me   = room?.players?.[myId];
+  const done = (me?.tasks?.completed || []).includes(taskIndex);
 
   const canInteract = isAlive && myRole === "crewmate" && !done;
   const nearRef = useRef(false);
 
-  // Proximity detection from room player data
+  // Proximity detection — prefer live ref, fall back to last known room position
   useFrame(() => {
-    if (!room || !myId) return;
-    const me = room.players?.[myId];
-    if (!me?.position) return;
-    const dx = me.position[0] - position[0];
-    const dz = me.position[2] - position[2];
+    const pos = myPositionRef?.current ?? me?.position;
+    if (!pos) return;
+    const dx = pos[0] - position[0];
+    const dz = pos[2] - position[2];
     const d  = Math.sqrt(dx * dx + dz * dz);
-    const isNear = d < 2.0;
+    const isNear = d < 3.0;
     if (isNear !== nearRef.current) {
       nearRef.current = isNear;
       setNear(isNear);
@@ -183,7 +187,7 @@ export function TaskStation({ position, taskIndex, onComplete }) {
 
   return (
     <group position={position}>
-      <mesh ref={meshRef}>
+      <mesh ref={meshRef} onClick={() => { if (near && canInteract) setOpen(true); }}>
         <sphereGeometry args={[0.25, 16, 16]} />
         <meshStandardMaterial
           color={done ? "#555" : "#9b59b6"}
@@ -198,16 +202,20 @@ export function TaskStation({ position, taskIndex, onComplete }) {
         <pointLight color="#9b59b6" intensity={near ? 2 : 0.8} distance={3} />
       )}
 
-      {/* "Press E" indicator */}
+      {/* "Press E" indicator — also clickable */}
       {near && canInteract && (
         <Html center position={[0, 0.6, 0]} distanceFactor={6}>
-          <div style={{
-            background: "rgba(0,0,0,.8)", borderRadius: 8,
-            padding: "4px 10px", fontSize: 12,
-            color: "#e0d0ff", fontWeight: 700,
-            border: "1px solid rgba(155,89,182,.5)",
-            whiteSpace: "nowrap", backdropFilter: "blur(4px)",
-          }}>
+          <div
+            onClick={() => setOpen(true)}
+            style={{
+              background: "rgba(0,0,0,.8)", borderRadius: 8,
+              padding: "4px 10px", fontSize: 12,
+              color: "#e0d0ff", fontWeight: 700,
+              border: "1px solid rgba(155,89,182,.5)",
+              whiteSpace: "nowrap", backdropFilter: "blur(4px)",
+              cursor: "pointer",
+            }}
+          >
             [E] {task.label}
           </div>
         </Html>
@@ -232,10 +240,8 @@ export function TaskStation({ position, taskIndex, onComplete }) {
           <TaskMiniGame
             task={task}
             onComplete={() => {
-              setDone(true);
               setOpen(false);
-              setNear(false);
-              completeTask(taskIndex);  // sync to server
+              completeTask(taskIndex);  // sync to server → updates tasks.completed → done re-derives
               onComplete?.(taskIndex);
             }}
             onClose={() => setOpen(false)}
