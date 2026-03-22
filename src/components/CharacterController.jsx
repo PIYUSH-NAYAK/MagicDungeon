@@ -58,8 +58,11 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
   const nearbyDeadRef   = useRef(null);
 
   useEffect(() => {
-    const down = () => { isClicking.current = true;  };
-    const up   = () => { isClicking.current = false; };
+    // Only enable click-to-move when the click lands on the WebGL canvas,
+    // not on DOM overlays (task mini-game, HUD buttons, meeting screen, etc.)
+    const isCanvas = (e) => e.target?.tagName === "CANVAS";
+    const down = (e) => { if (isCanvas(e)) isClicking.current = true;  };
+    const up   = ()  => { isClicking.current = false; };
     document.addEventListener("mousedown",  down);
     document.addEventListener("mouseup",    up);
     document.addEventListener("touchstart", down);
