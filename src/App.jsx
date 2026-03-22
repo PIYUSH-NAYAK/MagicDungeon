@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { KeyboardControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { GameProvider, useGame } from "./context/GameContext";
+import { HUD } from "./components/HUD";
 import { SplashScreen } from "./screens/SplashScreen";
 import { MainMenu } from "./screens/MainMenu";
 import { LobbyScreen } from "./screens/LobbyScreen";
@@ -34,22 +36,35 @@ const SCREENS = {
 };
 
 function GameRouter() {
-  const { phase } = useGame();
+  const { phase, killPlayer, reportBody, callEmergencyMeeting } = useGame();
+  const [nearbyPlayerId, setNearbyPlayerId] = useState(null);
+  const [nearbyDeadId,   setNearbyDeadId]   = useState(null);
 
   // Pre-game / post-game UI screens
   const Screen = SCREENS[phase];
   if (Screen) return <Screen />;
 
-  // "playing" phase — mount the 3D world
+  // "playing" phase — the HUD is a DOM sibling of Canvas (not inside it)
   return (
     <KeyboardControls map={keyboardMap}>
+      {/* Plain DOM overlay HUD — position:fixed, sits above the Canvas */}
+      <HUD
+        nearbyPlayerId={nearbyPlayerId}
+        nearbyDeadId={nearbyDeadId}
+        onKill={()       => killPlayer(nearbyPlayerId)}
+        onReport={()     => reportBody(nearbyDeadId)}
+        onEmergency={()  => callEmergencyMeeting()}
+      />
       <Canvas
         shadows
-        camera={{ position: [3, 3, 3], near: 0.1, fov: 40 }}
+        camera={{ position: [3, 3, 3], near: 0.1, fov: 70 }}
         style={{ touchAction: "none" }}
       >
-        <color attach="background" args={["#ececec"]} />
-        <Experience />
+        <color attach="background" args={["#1a1a2e"]} />
+        <Experience
+          onNearbyPlayer={setNearbyPlayerId}
+          onNearbyDead={setNearbyDeadId}
+        />
       </Canvas>
     </KeyboardControls>
   );

@@ -1,10 +1,9 @@
 import { Environment, OrthographicCamera } from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { CharacterController } from "./CharacterController";
 import { Map } from "./Map";
 import { RemoteCharacter } from "./RemoteCharacter";
-import { HUD } from "./HUD";
 import { TaskStation } from "./TaskStation";
 import { useGame } from "../context/GameContext";
 
@@ -26,7 +25,7 @@ const TASK_POSITIONS = [
 const Scene = ({ nearbyPlayerId, nearbyDeadId, onNearbyPlayer, onNearbyDead }) => {
   const shadowCameraRef = useRef();
   const { room, myId } = useGame();
-  const map = "castle_on_hills";
+  const map = room?.map || "castle_on_hills";
   const cfg = MAP_CONFIGS[map];
   const players = room?.players ?? {};
 
@@ -73,26 +72,11 @@ const Scene = ({ nearbyPlayerId, nearbyDeadId, onNearbyPlayer, onNearbyDead }) =
   );
 };
 
-export const Experience = () => {
-  const { killPlayer, reportBody, callEmergencyMeeting } = useGame();
-  const [nearbyPlayerId, setNearbyPlayerId] = useState(null);
-  const [nearbyDeadId,   setNearbyDeadId]   = useState(null);
-
+export const Experience = ({ onNearbyPlayer, onNearbyDead }) => {
   return (
-    <>
-      <HUD
-        nearbyPlayerId={nearbyPlayerId}
-        nearbyDeadId={nearbyDeadId}
-        onKill={()      => killPlayer(nearbyPlayerId)}
-        onReport={()    => reportBody(nearbyDeadId)}
-        onEmergency={()  => callEmergencyMeeting()}
-      />
-      <Scene
-        nearbyPlayerId={nearbyPlayerId}
-        nearbyDeadId={nearbyDeadId}
-        onNearbyPlayer={setNearbyPlayerId}
-        onNearbyDead={setNearbyDeadId}
-      />
-    </>
+    <Scene
+      onNearbyPlayer={onNearbyPlayer}
+      onNearbyDead={onNearbyDead}
+    />
   );
 };

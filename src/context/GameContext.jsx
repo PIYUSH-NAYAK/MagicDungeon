@@ -197,6 +197,12 @@ export function GameProvider({ children }) {
     sock()?.emit("setGameMode", { code: r.code, gameMode: mode });
   }
 
+  function selectMap(map) {
+    const r = roomRef.current;
+    if (!r) return;
+    sock()?.emit("setMap", { code: r.code, map });
+  }
+
   function startCountdown() {
     const r = roomRef.current;
     if (!r) return;
@@ -283,7 +289,7 @@ export function GameProvider({ children }) {
       COLORS,
       playerTransformsRef,   // ref to the live transform Map
       createRoom, joinRoom, startGame,
-      confirmCharacter, selectGameMode,
+      confirmCharacter, selectGameMode, selectMap,
       startCountdown, setReady,
       emitMove,
       killPlayer, reportBody, callEmergencyMeeting,

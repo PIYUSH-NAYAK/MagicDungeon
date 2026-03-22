@@ -1,4 +1,4 @@
-import { useKeyboardControls, Html } from "@react-three/drei";
+import { useKeyboardControls } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { CapsuleCollider, RigidBody } from "@react-three/rapier";
 import { useControls } from "leva";
@@ -52,6 +52,7 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
 
   const characterRotationTarget = useRef(0);
   const rotationTarget          = useRef(0);
+  const cameraYaw               = useRef(0);  // world-space camera yaw, free of feedback loops
   const cameraTarget            = useRef();
   const cameraPosition          = useRef();
   const cameraWorldPosition     = useRef(new Vector3());
@@ -165,19 +166,26 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
       }
     }
 
-    // CAMERA
+    // CAMERA — follow actual movement direction in world space
+    // Using linvel avoids the feedback loop from (container.y + character.y)
+    const vx = vel.x;
+    const vz = vel.z;
+    if (Math.abs(vx) > 0.05 || Math.abs(vz) > 0.05) {
+      // Angle behind movement direction
+      cameraYaw.current = Math.atan2(vx, vz);
+    }
     container.current.rotation.y = MathUtils.lerp(
       container.current.rotation.y,
-      rotationTarget.current,
-      0.1
+      cameraYaw.current,
+      0.05,   // gentle lag — not snappy, not spinning
     );
 
     cameraPosition.current.getWorldPosition(cameraWorldPosition.current);
-    camera.position.lerp(cameraWorldPosition.current, 0.1);
+    camera.position.lerp(cameraWorldPosition.current, 0.12);
 
     if (cameraTarget.current) {
       cameraTarget.current.getWorldPosition(cameraLookAtWorldPosition.current);
-      cameraLookAt.current.lerp(cameraLookAtWorldPosition.current, 0.1);
+      cameraLookAt.current.lerp(cameraLookAtWorldPosition.current, 0.12);
       camera.lookAt(cameraLookAt.current);
     }
   });
@@ -192,8 +200,8 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
   return (
     <RigidBody colliders={false} lockRotations ref={rb} position={spawnPos}>
       <group ref={container}>
-        <group ref={cameraTarget} position-z={1.5} />
-        <group ref={cameraPosition} position-y={4} position-z={-4} />
+        <group ref={cameraTarget} position-y={0.8} />
+        <group ref={cameraPosition} position-y={0.6} position-z={-2} />
         <group ref={character}>
           <Character
             scale={0.18}
@@ -201,23 +209,6 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
             animation={animationState}
             color={myPlayer.color}
           />
-          {/* Name tag */}
-          <Html position={[0, 2.2, 0]} center distanceFactor={10}>
-            <div style={{
-              fontFamily: "Arial, sans-serif",
-              fontWeight: "bold",
-              color: myPlayer.color || "#4ade80",
-              backgroundColor: "rgba(0,0,0,0.65)",
-              padding: "3px 8px",
-              borderRadius: "12px",
-              fontSize: "11px",
-              whiteSpace: "nowrap",
-              userSelect: "none",
-              border: `1px solid ${myPlayer.color || "#4ade80"}55`,
-            }}>
-              {myPlayer.name || "YOU"} <span style={{ opacity: .6, fontSize: 9 }}>(you)</span>
-            </div>
-          </Html>
         </group>
       </group>
       <CapsuleCollider args={[0.08, 0.15]} />

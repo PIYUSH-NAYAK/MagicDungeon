@@ -104,6 +104,7 @@ io.on("connection", (socket) => {
       hostId: socket.id,
       phase: "lobby",
       gameMode: "impostor",
+      map: "castle_on_hills",
       maxPlayers: 10,
       taskProgress: { completed: 0, total: 0 },
       votes: {},
@@ -193,6 +194,14 @@ io.on("connection", (socket) => {
     const room = rooms[code];
     if (!room || room.hostId !== socket.id) return;
     room.gameMode = gameMode;
+    broadcastRoom(code);
+  });
+
+  // ── Set map (host only) ───────────────────────────────────────────────────
+  socket.on("setMap", ({ code, map }) => {
+    const room = rooms[code];
+    if (!room || room.hostId !== socket.id) return;
+    room.map = map;
     broadcastRoom(code);
   });
 
