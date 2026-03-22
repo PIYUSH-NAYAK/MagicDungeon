@@ -38,7 +38,7 @@ export function getVotePda(gid, session) {
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
-export function useAmongUsProgram(gameIdStr) {
+export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
   const { publicKey, sendTransaction, signTransaction, signMessage } = useWallet();
   const { connection } = useConnection();
 
@@ -96,27 +96,43 @@ export function useAmongUsProgram(gameIdStr) {
   }, [allPlayerStates]);
 
   // ─── Send helpers ────────────────────────────────────────────────────────
-  const sendBase = useCallback(async (ix) => {
+  const sendBase = useCallback(async (ix, label = "Base TX") => {
     if (!publicKey) throw new Error("Wallet not connected");
-    const tx = new Transaction().add(ix);
-    tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-    tx.feePayer = publicKey;
-    const sig = await sendTransaction(tx, connection);
-    await connection.confirmTransaction(sig, "confirmed");
-    return sig;
-  }, [publicKey, connection, sendTransaction]);
+    const id = `${label}-${Date.now()}`;
+    onTxLog?.({ id, label, status: "pending", isER: false });
+    try {
+      const tx = new Transaction().add(ix);
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx.feePayer = publicKey;
+      const sig = await sendTransaction(tx, connection);
+      await connection.confirmTransaction(sig, "confirmed");
+      onTxLog?.({ id, label, status: "confirmed", sig, isER: false });
+      return sig;
+    } catch (e) {
+      onTxLog?.({ id, label, status: "failed", isER: false });
+      throw e;
+    }
+  }, [publicKey, connection, sendTransaction, onTxLog]);
 
-  const sendER = useCallback(async (ix) => {
+  const sendER = useCallback(async (ix, label = "ER TX") => {
     if (!publicKey || !signTransaction || !providerERRef.current) throw new Error("ER not ready");
-    const er  = providerERRef.current;
-    const tx  = new Transaction().add(ix);
-    tx.recentBlockhash = (await er.connection.getLatestBlockhash()).blockhash;
-    tx.feePayer = publicKey;
-    const signed = await signTransaction(tx);
-    const sig    = await er.connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
-    await er.connection.confirmTransaction(sig, "confirmed");
-    return sig;
-  }, [publicKey, signTransaction]);
+    const id = `${label}-${Date.now()}`;
+    onTxLog?.({ id, label, status: "pending", isER: true });
+    try {
+      const er  = providerERRef.current;
+      const tx  = new Transaction().add(ix);
+      tx.recentBlockhash = (await er.connection.getLatestBlockhash()).blockhash;
+      tx.feePayer = publicKey;
+      const signed = await signTransaction(tx);
+      const sig    = await er.connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+      await er.connection.confirmTransaction(sig, "confirmed");
+      onTxLog?.({ id, label, status: "confirmed", sig, isER: true });
+      return sig;
+    } catch (e) {
+      onTxLog?.({ id, label, status: "failed", isER: true });
+      throw e;
+    }
+  }, [publicKey, signTransaction, onTxLog]);
 
   // ─── State sync ──────────────────────────────────────────────────────────
   const syncAllState = useCallback(async () => {

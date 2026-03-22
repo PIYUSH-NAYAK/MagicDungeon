@@ -52,7 +52,6 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
 
   const characterRotationTarget = useRef(0);
   const rotationTarget          = useRef(0);
-  const cameraYaw               = useRef(0);  // world-space camera yaw, free of feedback loops
   const cameraTarget            = useRef();
   const cameraPosition          = useRef();
   const cameraWorldPosition     = useRef(new Vector3());
@@ -166,26 +165,19 @@ export const CharacterController = ({ onNearbyPlayer, onNearbyDead }) => {
       }
     }
 
-    // CAMERA — follow actual movement direction in world space
-    // Using linvel avoids the feedback loop from (container.y + character.y)
-    const vx = vel.x;
-    const vz = vel.z;
-    if (Math.abs(vx) > 0.05 || Math.abs(vz) > 0.05) {
-      // Angle behind movement direction
-      cameraYaw.current = Math.atan2(vx, vz);
-    }
+    // CAMERA
     container.current.rotation.y = MathUtils.lerp(
       container.current.rotation.y,
-      cameraYaw.current,
-      0.05,   // gentle lag — not snappy, not spinning
+      rotationTarget.current,
+      0.1
     );
 
     cameraPosition.current.getWorldPosition(cameraWorldPosition.current);
-    camera.position.lerp(cameraWorldPosition.current, 0.12);
+    camera.position.lerp(cameraWorldPosition.current, 0.1);
 
     if (cameraTarget.current) {
       cameraTarget.current.getWorldPosition(cameraLookAtWorldPosition.current);
-      cameraLookAt.current.lerp(cameraLookAtWorldPosition.current, 0.12);
+      cameraLookAt.current.lerp(cameraLookAtWorldPosition.current, 0.1);
       camera.lookAt(cameraLookAt.current);
     }
   });

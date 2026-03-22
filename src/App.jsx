@@ -3,6 +3,7 @@ import { KeyboardControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { GameProvider, useGame } from "./context/GameContext";
 import { HUD } from "./components/HUD";
+import { ChainLog } from "./components/ChainLog";
 import { WalletProvider } from "./providers/WalletProvider";
 import { SplashScreen } from "./screens/SplashScreen";
 import { MainMenu } from "./screens/MainMenu";
@@ -10,6 +11,7 @@ import { LobbyScreen } from "./screens/LobbyScreen";
 import { CharacterSelect } from "./screens/CharacterSelect";
 import { GameMode } from "./screens/GameMode";
 import { Countdown } from "./screens/Countdown";
+import { DelegatingScreen } from "./screens/DelegatingScreen";
 import { RoleReveal } from "./screens/RoleReveal";
 import { MeetingScreen } from "./screens/MeetingScreen";
 import { ResultsScreen } from "./screens/ResultsScreen";
@@ -31,6 +33,7 @@ const SCREENS = {
   lobby:            LobbyScreen,
   character_select: CharacterSelect,
   game_mode:        GameMode,
+  delegating:       DelegatingScreen,
   countdown:        Countdown,
   role_reveal:      RoleReveal,
   meeting:          MeetingScreen,
@@ -38,18 +41,21 @@ const SCREENS = {
 };
 
 function GameRouter() {
-  const { phase, killPlayer, reportBody, callEmergencyMeeting } = useGame();
+  const { phase, killPlayer, reportBody, callEmergencyMeeting, txLogs } = useGame();
   const [nearbyPlayerId, setNearbyPlayerId] = useState(null);
   const [nearbyDeadId,   setNearbyDeadId]   = useState(null);
 
+  // Global ChainLog overlay — visible on ALL screens
+  const chainLogEl = <ChainLog logs={txLogs} />;
+
   // Pre-game / post-game UI screens
   const Screen = SCREENS[phase];
-  if (Screen) return <Screen />;
+  if (Screen) return <>{chainLogEl}<Screen /></>;
 
   // "playing" phase — the HUD is a DOM sibling of Canvas (not inside it)
   return (
     <KeyboardControls map={keyboardMap}>
-      {/* Plain DOM overlay HUD — position:fixed, sits above the Canvas */}
+      {chainLogEl}
       <HUD
         nearbyPlayerId={nearbyPlayerId}
         nearbyDeadId={nearbyDeadId}

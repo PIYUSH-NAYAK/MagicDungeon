@@ -14,7 +14,10 @@ export const COLORS = [
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function GameProvider({ children }) {
   const [phase, setPhase]               = useState("splash");
-  const [myPlayer, setMyPlayer]         = useState({ name: "", color: COLORS[0] });
+  // Restore name/color from localStorage
+  const savedName  = localStorage.getItem("mg_playerName")  || "";
+  const savedColor = localStorage.getItem("mg_playerColor") || COLORS[0];
+  const [myPlayer, setMyPlayer]         = useState({ name: savedName, color: savedColor });
   const [room, setRoom]                 = useState(null);
   const [error, setError]               = useState(null);
   const [countdownValue, setCount]      = useState(5);
@@ -28,11 +31,20 @@ export function GameProvider({ children }) {
   const [meetingTimer, setMeetingTimer] = useState(60);
   const [meetingResult, setMeetingResult] = useState(null);
   const [winner, setWinner]             = useState(null);
-  const [chainGameId, setChainGameId]   = useState(null); // on-chain game_id (u64 as string)
+  const [chainGameId, setChainGameId]   = useState(null);
+  const [txLogs, setTxLogs]             = useState([]); // feeds ChainLog UI
+  const [delegationProgress, setDelegProgess] = useState(null); // { delegated, total, players[] }
 
   const { publicKey } = useWallet();
-  // On-chain program hook (only active once chainGameId is set)
-  const chain = useAmongUsProgram(chainGameId || "0");
+
+  // Append a TX log entry — passed to useAmongUsProgram as onTxLog
+  const onTxLog = (log) => setTxLogs(prev => {
+    const exists = prev.find(l => l.id === log.id);
+    if (exists) return prev.map(l => l.id === log.id ? { ...l, ...log } : l);
+    return [...prev, log];
+  });
+
+  const chain = useAmongUsProgram(chainGameId || "0", { onTxLog });
 
   const socketRef = useRef(null);
   const roomRef   = useRef(null);
@@ -126,8 +138,12 @@ export function GameProvider({ children }) {
         setPhase("lobby");
       } else if (updated.phase === "character_select") {
         setPhase(prev => prev === "lobby" ? "character_select" : prev);
+      } else if (updated.phase === "delegating") {
+        setPhase("delegating");
       }
     });
+
+    s.on("delegationProgress", (progress) => setDelegProgess(progress));
 
     s.on("countdownTick", ({ count }) => setCount(count));
 
@@ -153,7 +169,18 @@ export function GameProvider({ children }) {
       setRoom(prev => prev ? { ...prev, votes } : prev);
     });
 
-    s.on("meetingResult", (result) => setMeetingResult(result));
+    s.on("meetingResult", (result) => {
+      setMeetingResult(result);
+      // Auto-trigger resolveVote on-chain (host resolves based on socket result)
+      if (result && myIdRef.current === roomRef.current?.hostId) {
+        const ejectedPlayer = result.ejectedId
+          ? roomRef.current?.players[result.ejectedId]
+          : null;
+        const ejectedWallet = ejectedPlayer?.walletPubkey || null;
+        chain.commands.resolveVote(ejectedWallet)
+          .catch(e => console.warn("[chain] resolveVote:", e.message));
+      }
+    });
 
     s.on("taskCompleted", ({ taskProgress }) => setTaskProgress(taskProgress));
 
@@ -189,6 +216,36 @@ export function GameProvider({ children }) {
     chain.subscribe();
   }, [chain.teeToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Delegating phase: EVERY player signs their own delegation ────────────────
+  // This runs for all players (including host) when server puts room in 'delegating'
+  useEffect(() => {
+    if (phase !== "delegating" || !chainGameId || !room) return;
+    const r = roomRef.current;
+    if (!r) return;
+
+    (async () => {
+      try {
+        // Host also delegates the shared GameState
+        if (myId === r.hostId) {
+          await chain.commands.createPermGame();
+          await chain.commands.delegateGame();
+        }
+        // Every player delegates their own PlayerState
+        await chain.commands.createPermPlayer();
+        await chain.commands.delegatePlayer();
+        // Authenticate with TEE
+        await chain.commands.authTee();
+        // Signal server: this player is ready
+        sock()?.emit("playerDelegated", { code: r.code });
+        console.log("[chain] delegation complete ✓");
+      } catch (e) {
+        console.warn("[chain] delegation failed:", e.message);
+        // Still signal so game isn't blocked if chain is unavailable
+        sock()?.emit("playerDelegated", { code: r.code });
+      }
+    })();
+  }, [phase, chainGameId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Helper ─────────────────────────────────────────────────────────────────
   const sock = () => socketRef.current;
 
@@ -215,6 +272,8 @@ export function GameProvider({ children }) {
 
   function confirmCharacter(name, color) {
     setMyPlayer({ name, color });
+    localStorage.setItem("mg_playerName",  name);
+    localStorage.setItem("mg_playerColor", color);
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("setCharacter", { code: r.code, name, color });
@@ -243,27 +302,9 @@ export function GameProvider({ children }) {
   function startCountdown() {
     const r = roomRef.current;
     if (!r) return;
+    // Server moves room to 'delegating' phase → each client signs their own txs
+    // → server waits for all → then fires countdown → host calls startGame via ER
     sock()?.emit("startCountdown", { code: r.code });
-
-    // ── On-chain: run delegation + TEE auth + startGame in background ──────
-    // This runs in parallel with the socket countdown so UI isn't blocked.
-    (async () => {
-      try {
-        // 1. Create permission + delegate game state (host only)
-        await chain.commands.createPermGame();
-        await chain.commands.delegateGame();
-        // 2. Create permission + delegate own player state
-        await chain.commands.createPermPlayer();
-        await chain.commands.delegatePlayer();
-        // 3. Authenticate with TEE (gets token, initialises ER program)
-        await chain.commands.authTee();
-        // 4. Start game in ER (assigns roles secretly)
-        await chain.commands.startGame();
-        console.log("[chain] Game started on-chain ✓");
-      } catch (e) {
-        console.warn("[chain] startCountdown sequence:", e.message);
-      }
-    })();
   }
 
   function setReady(val) {
@@ -371,7 +412,9 @@ export function GameProvider({ children }) {
       // ── On-chain (Solana / MagicBlock ER) ──
       chain,          // the full useAmongUsProgram instance
       chainGameId,    // current on-chain game_id (string)
-      walletPublicKey: publicKey,  // caller's wallet pubkey
+      walletPublicKey: publicKey,
+      txLogs,              // feeds ChainLog
+      delegationProgress,  // feeds DelegatingScreen
     }}>
       {children}
     </GameContext.Provider>

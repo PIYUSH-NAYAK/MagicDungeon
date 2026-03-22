@@ -106,6 +106,7 @@ io.on("connection", (socket) => {
       gameMode: "impostor",
       map: "castle_on_hills",
       chainGameId: String(Date.now()),  // on-chain game_id shared with all players
+      delegatedPlayers: {},             // tracks which players completed on-chain delegation
       maxPlayers: 10,
       taskProgress: { completed: 0, total: 0 },
       votes: {},
@@ -213,7 +214,7 @@ io.on("connection", (socket) => {
     const room = rooms[code];
     if (!room || room.hostId !== socket.id) return;
 
-    // Reset spawn positions so all players start from defined ring slots
+    // Reset spawn positions
     const pids = Object.keys(room.players);
     pids.forEach((pid, i) => {
       room.players[pid].position  = spawnPosition(i);
@@ -221,21 +222,49 @@ io.on("connection", (socket) => {
       room.players[pid].animation = "idle";
     });
 
-    room.phase = "countdown";
+    // Move to 'delegating' phase — each client signs their own chain txs
+    room.phase = "delegating";
+    room.delegatedPlayers = {};
     broadcastRoom(code);
+  });
 
-    let count = 5;
-    const interval = setInterval(() => {
-      io.to(code).emit("countdownTick", { count });
-      count--;
-      if (count < 0) {
-        clearInterval(interval);
-        assignRoles(room);
-        room.phase = "role_reveal";
-        broadcastRoom(code);
-        broadcastRoles(code);
-      }
-    }, 1000);
+  // ── Player signals completed their on-chain delegation ────────────────────
+  socket.on("playerDelegated", ({ code }) => {
+    const room = rooms[code];
+    if (!room || room.phase !== "delegating") return;
+
+    room.delegatedPlayers[socket.id] = true;
+    const totalPlayers   = Object.keys(room.players).length;
+    const delegatedCount = Object.keys(room.delegatedPlayers).length;
+
+    // Broadcast updated delegation status to show live progress
+    io.to(code).emit("delegationProgress", {
+      delegated: delegatedCount,
+      total: totalPlayers,
+      players: Object.entries(room.players).map(([id, p]) => ({
+        id, name: p.name, color: p.color,
+        done: !!room.delegatedPlayers[id],
+      })),
+    });
+
+    // All players delegated — start countdown
+    if (delegatedCount >= totalPlayers) {
+      room.phase = "countdown";
+      broadcastRoom(code);
+
+      let count = 5;
+      const interval = setInterval(() => {
+        io.to(code).emit("countdownTick", { count });
+        count--;
+        if (count < 0) {
+          clearInterval(interval);
+          assignRoles(room);
+          room.phase = "role_reveal";
+          broadcastRoom(code);
+          broadcastRoles(code);
+        }
+      }, 1000);
+    }
   });
 
   // ── In-game movement ─────────────────────────────────────────────────────

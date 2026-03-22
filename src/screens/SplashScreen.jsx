@@ -102,9 +102,43 @@ export function SplashScreen() {
         </div>
 
         <p style={{ marginTop: "2rem", color: "#7a7a9a", fontSize: ".95rem", letterSpacing: ".12em" }}>
-          3D · Real-time Multiplayer
+          3D · Real-time Multiplayer · On-chain
         </p>
 
+        {/* Wallet connect / enter prompt */}
+        <div style={{ marginTop: "2.5rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+          {!publicKey ? (
+            <>
+              <WalletMultiButton style={{
+                background: "linear-gradient(135deg,#9b59b6,#6c3483)",
+                border: "none", borderRadius: 99,
+                fontSize: ".95rem", fontWeight: 700, padding: ".7rem 1.8rem",
+              }} />
+              <p style={{ color: "#555577", fontSize: ".8rem" }}>Connect wallet to enter</p>
+            </>
+          ) : (
+            <>
+              <div style={{
+                display: "flex", alignItems: "center", gap: ".5rem",
+                background: "rgba(46,204,113,.12)", border: "1px solid rgba(46,204,113,.3)",
+                borderRadius: 99, padding: ".4rem 1.1rem", fontSize: ".82rem",
+              }}>
+                <span style={{ color: "#2ecc71", fontWeight: 700 }}>●</span>
+                <span style={{ color: "#a0ffa0" }}>
+                  {publicKey.toBase58().slice(0,4)}…{publicKey.toBase58().slice(-4)}
+                </span>
+                <WalletMultiButton style={{
+                  background: "transparent", border: "none",
+                  color: "rgba(255,255,255,.35)", fontSize: ".75rem",
+                  padding: "0 .3rem", cursor: "pointer",
+                }} />
+              </div>
+              <p style={{ color: "#7a7a9a", fontSize: ".82rem", letterSpacing: ".08em", animation: "pulse 2s infinite" }}>
+                Click anywhere or press any key to enter
+              </p>
+            </>
+          )}
+        </div>
 
       </div>
 
