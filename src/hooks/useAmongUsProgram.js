@@ -316,7 +316,7 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       setIsLoading(true);
       try {
         const permPda  = permissionPdaFromAccount(myPda);
-        const groupPda = groupPdaFromId(publicKey);
+        const groupPda = groupPdaFromId(myPda);
         const ix = await programRef.current.methods
           .createPermission({ player: { gameId: gid, player: publicKey } })
           .accounts({
