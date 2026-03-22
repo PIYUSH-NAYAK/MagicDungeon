@@ -82,16 +82,28 @@ export function LobbyScreen() {
         )}
 
         {/* Start game (host only) */}
-        {isHost && (
-          <button
-            className="btn btn-gold btn-full"
-            disabled={players.length < 1}
-            onClick={startGame}
-            style={{ fontSize: "1.05rem", padding: ".9rem" }}
-          >
-            🎮 &nbsp; Start Game
-          </button>
-        )}
+        {isHost && (() => {
+          const nonHostPlayers = players.filter(p => p.id !== room.hostId);
+          const allReady = nonHostPlayers.length > 0 && nonHostPlayers.every(p => p.ready);
+          const notReadyCount = nonHostPlayers.filter(p => !p.ready).length;
+          return (
+            <button
+              className="btn btn-gold btn-full"
+              disabled={!allReady}
+              onClick={startGame}
+              style={{
+                fontSize: "1.05rem", padding: ".9rem",
+                opacity: allReady ? 1 : 0.4,
+                cursor: allReady ? "pointer" : "not-allowed",
+                transition: "opacity .3s",
+              }}
+            >
+              {allReady
+                ? "🎮 \u00a0 Start Game"
+                : `⏳ Waiting for ${notReadyCount} player${notReadyCount > 1 ? "s" : ""}…`}
+            </button>
+          );
+        })()}
 
         <button className="btn btn-ghost btn-full btn-sm" onClick={leaveRoom} style={{ color: "var(--muted)" }}>
           Leave Room
