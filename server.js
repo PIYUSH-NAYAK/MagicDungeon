@@ -105,6 +105,7 @@ io.on("connection", (socket) => {
       phase: "lobby",
       gameMode: "impostor",
       map: "castle_on_hills",
+      chainGameId: String(Date.now()),  // on-chain game_id shared with all players
       maxPlayers: 10,
       taskProgress: { completed: 0, total: 0 },
       votes: {},

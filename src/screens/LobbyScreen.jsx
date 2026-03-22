@@ -1,7 +1,9 @@
 import { useGame } from "../context/GameContext";
 
 export function LobbyScreen() {
-  const { room, isHost, myId, setReady, leaveRoom, startGame } = useGame();
+  const { room, isHost, myId, setReady, leaveRoom, startGame, chain, chainGameId, walletPublicKey } = useGame();
+  const walletShort = walletPublicKey ? `${walletPublicKey.toBase58().slice(0,4)}…${walletPublicKey.toBase58().slice(-4)}` : "not connected";
+  const teeActive   = !!chain?.teeToken;
 
   if (!room) return null;
 
@@ -94,6 +96,25 @@ export function LobbyScreen() {
         <button className="btn btn-ghost btn-full btn-sm" onClick={leaveRoom} style={{ color: "var(--muted)" }}>
           Leave Room
         </button>
+      </div>
+      {/* Solana status strip */}
+      <div style={{
+        position: "absolute", bottom: 12, left: 0, right: 0,
+        display: "flex", justifyContent: "center",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: ".75rem",
+          background: "rgba(0,0,0,.55)", border: "1px solid rgba(255,255,255,.08)",
+          borderRadius: 99, padding: ".35rem 1rem", fontSize: ".75rem", color: "rgba(255,255,255,.4)",
+        }}>
+          <span title="Wallet">🔑 {walletShort}</span>
+          <span style={{ opacity: .4 }}>│</span>
+          <span>📦 game #{chainGameId ? chainGameId.slice(-6) : "—"}</span>
+          <span style={{ opacity: .4 }}>│</span>
+          <span style={{ color: teeActive ? "#2ecc71" : "rgba(255,255,255,.3)" }}>
+            {teeActive ? "⚡ TEE active" : "○ TEE pending"}
+          </span>
+        </div>
       </div>
     </div>
   );

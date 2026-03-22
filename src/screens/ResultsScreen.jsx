@@ -1,8 +1,24 @@
+import { useState } from "react";
 import { useGame } from "../context/GameContext";
 
 export function ResultsScreen() {
-  const { room, winner, isHost, backToLobby } = useGame();
+  const { room, winner, isHost, backToLobby, chain } = useGame();
+  const [finalizing, setFinalizing] = useState(false);
+  const [finalized,  setFinalized]  = useState(false);
   if (!room) return null;
+
+  async function handleFinalize() {
+    if (!chain) return;
+    setFinalizing(true);
+    try {
+      await chain.commands.finalizeGame();
+      setFinalized(true);
+    } catch (e) {
+      console.warn("[chain] finalizeGame:", e.message);
+    } finally {
+      setFinalizing(false);
+    }
+  }
 
   const players  = Object.values(room.players);
   const impostors = players.filter(p => p.role === "impostor");
@@ -93,18 +109,42 @@ export function ResultsScreen() {
         </div>
       </div>
 
-      {/* Back to lobby */}
+      {/* On-chain finalize + Back to lobby */}
       {isHost ? (
-        <button
-          className="btn btn-gold"
-          onClick={backToLobby}
-          style={{ padding: ".9rem 2.5rem", fontSize: "1rem" }}
-        >
-          🏠 Back to Lobby
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+          {!finalized ? (
+            <>
+              <button
+                className="btn"
+                onClick={handleFinalize}
+                disabled={finalizing}
+                style={{
+                  padding: ".75rem 2rem", fontSize: ".9rem",
+                  background: "linear-gradient(135deg,#9b59b6,#6c3483)",
+                  border: "none", color: "#fff", borderRadius: 99, cursor: "pointer",
+                  opacity: finalizing ? .6 : 1,
+                }}
+              >
+                {finalizing ? "⏳ Committing…" : "⛓️ Commit Result to Chain"}
+              </button>
+              <p style={{ color: "rgba(255,255,255,.3)", fontSize: ".75rem", textAlign: "center", maxWidth: 300 }}>
+                Locks final result permanently on Solana Devnet via MagicBlock ER
+              </p>
+            </>
+          ) : (
+            <p style={{ color: "#2ecc71", fontSize: ".85rem", fontWeight: 700 }}>✅ Result committed on-chain!</p>
+          )}
+          <button
+            className="btn btn-gold"
+            onClick={backToLobby}
+            style={{ padding: ".9rem 2.5rem", fontSize: "1rem" }}
+          >
+            🏠 Back to Lobby
+          </button>
+        </div>
       ) : (
         <p style={{ color: "rgba(255,255,255,.3)", fontSize: ".85rem" }}>
-          Waiting for host to start a new game…
+          {chain?.isFinalized ? "✅ Result committed on-chain" : "Waiting for host to start a new game…"}
         </p>
       )}
 

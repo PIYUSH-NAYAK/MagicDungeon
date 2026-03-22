@@ -98,12 +98,15 @@ export function GameProvider({ children }) {
       seedTransforms(room.players, true);
       setRoom(room);
       setPhase("lobby");
+      // Read chainGameId from server so all clients share the same on-chain game_id
+      if (room.chainGameId) setChainGameId(room.chainGameId);
     });
 
     s.on("roomJoined", ({ room }) => {
       seedTransforms(room.players, true);
       setRoom(room);
       setPhase("lobby");
+      if (room.chainGameId) setChainGameId(room.chainGameId);
     });
 
     s.on("roomUpdate", (updated) => {
@@ -167,6 +170,25 @@ export function GameProvider({ children }) {
     return () => { s.disconnect(); socketRef.current = null; };
   }, []);
 
+  // ── Auto on-chain: createGame when host's room+chainGameId are ready ────────
+  useEffect(() => {
+    if (!chainGameId || !room || !myId || myId !== room.hostId) return;
+    // Only fire once when chainGameId is first set with a valid room
+    chain.commands.createGame().catch(e => console.warn("[chain] createGame:", e.message));
+  }, [chainGameId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto on-chain: joinGame when non-host gets their chainGameId ─────────────
+  useEffect(() => {
+    if (!chainGameId || !room || !myId || myId === room.hostId) return;
+    chain.commands.joinGame().catch(e => console.warn("[chain] joinGame:", e.message));
+  }, [chainGameId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto on-chain: subscribe to ER WS when teeToken is ready ─────────────────
+  useEffect(() => {
+    if (!chain.teeToken) return;
+    chain.subscribe();
+  }, [chain.teeToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Helper ─────────────────────────────────────────────────────────────────
   const sock = () => socketRef.current;
 
@@ -222,6 +244,26 @@ export function GameProvider({ children }) {
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("startCountdown", { code: r.code });
+
+    // ── On-chain: run delegation + TEE auth + startGame in background ──────
+    // This runs in parallel with the socket countdown so UI isn't blocked.
+    (async () => {
+      try {
+        // 1. Create permission + delegate game state (host only)
+        await chain.commands.createPermGame();
+        await chain.commands.delegateGame();
+        // 2. Create permission + delegate own player state
+        await chain.commands.createPermPlayer();
+        await chain.commands.delegatePlayer();
+        // 3. Authenticate with TEE (gets token, initialises ER program)
+        await chain.commands.authTee();
+        // 4. Start game in ER (assigns roles secretly)
+        await chain.commands.startGame();
+        console.log("[chain] Game started on-chain ✓");
+      } catch (e) {
+        console.warn("[chain] startCountdown sequence:", e.message);
+      }
+    })();
   }
 
   function setReady(val) {
@@ -244,30 +286,46 @@ export function GameProvider({ children }) {
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("killPlayer", { code: r.code, targetId });
+    // On-chain: look up victim's wallet pubkey from room players
+    const victim = r.players[targetId];
+    if (victim?.walletPubkey) {
+      chain.commands.killPlayer(victim.walletPubkey)
+        .catch(e => console.warn("[chain] killPlayer:", e.message));
+    }
   }
 
   function reportBody(bodyId) {
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("reportBody", { code: r.code, bodyId });
+    chain.commands.callMeeting()
+      .catch(e => console.warn("[chain] callMeeting (report):", e.message));
   }
 
   function callEmergencyMeeting() {
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("emergencyMeeting", { code: r.code });
+    chain.commands.callMeeting()
+      .catch(e => console.warn("[chain] callMeeting (emergency):", e.message));
   }
 
   function castVote(targetId) {
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("castVote", { code: r.code, targetId });
+    // On-chain vote: null targetId = skip
+    const target = targetId ? r.players[targetId]?.walletPubkey || null : null;
+    chain.commands.submitVote(target)
+      .catch(e => console.warn("[chain] submitVote:", e.message));
   }
 
   function completeTask(taskIndex) {
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("completeTask", { code: r.code, taskIndex });
+    chain.commands.completeTask()
+      .catch(e => console.warn("[chain] completeTask:", e.message));
   }
 
   function leaveRoom() {
