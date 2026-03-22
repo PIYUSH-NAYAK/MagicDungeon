@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MapTestScreen } from "./screens/MapTestScreen";
 import { KeyboardControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { GameProvider, useGame } from "./context/GameContext";
@@ -79,6 +80,11 @@ function GameRouter() {
 }
 
 function App() {
+  // ?test in URL → skip all wallet/lobby flow, go straight to 3D map tester
+  if (new URLSearchParams(window.location.search).has("test")) {
+    return <MapTestScreen />;
+  }
+
   return (
     <WalletProvider>
       <Toaster position="bottom-left" richColors />

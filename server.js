@@ -10,35 +10,43 @@ function generateCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
+// Send each connected player a personalised view of the room.
+// Their OWN role is included; all OTHER players' roles are redacted (private).
 function broadcastRoom(code) {
-  if (!rooms[code]) return;
-  io.to(code).emit("roomUpdate", rooms[code]);
-}
-
-// Send each player their own private role
-function broadcastRoles(code) {
   const room = rooms[code];
   if (!room) return;
-  for (const pid of Object.keys(room.players)) {
-    const role = room.players[pid].role;
-    io.to(pid).emit("roleAssigned", { role });
+  const sids = io.sockets.adapter.rooms.get(code);
+  if (!sids) return;
+  for (const sid of sids) {
+    const payload = {
+      ...room,
+      players: Object.fromEntries(
+        Object.entries(room.players).map(([pid, p]) => [
+          pid,
+          pid === sid ? p : { ...p, role: undefined },
+        ])
+      ),
+    };
+    io.to(sid).emit("roomUpdate", payload);
   }
 }
 
+// Internal role assignment — server uses this for win condition logic.
+// Roles are NOT sent to clients; clients use the ER (blockchain) for display.
 function assignRoles(room) {
   const pids = Object.keys(room.players);
   const impostorCount = Math.max(1, Math.floor(pids.length / 5));
   const shuffled = [...pids].sort(() => Math.random() - 0.5);
   for (let i = 0; i < pids.length; i++) {
-    room.players[shuffled[i]].role  = i < impostorCount ? "impostor" : "crewmate";
-    room.players[shuffled[i]].alive = true;
-    room.players[shuffled[i]].tasks     = { completed: 0, total: 3 };
-    room.players[shuffled[i]].votedFor  = null;
+    room.players[shuffled[i]].role     = i < impostorCount ? "impostor" : "crewmate";
+    room.players[shuffled[i]].alive    = true;
+    room.players[shuffled[i]].votedFor = null;
+    room.players[shuffled[i]].tasks    = { completed: 0, total: 3 };
   }
-  room.taskProgress   = { completed: 0, total: pids.length * 3 };
-  room.votes          = {};
-  room.meetingCallerId  = null;
-  room.meetingVictimId  = null;
+  room.taskProgress    = { completed: 0, total: pids.length * 3 };
+  room.votes           = {};
+  room.meetingCallerId = null;
+  room.meetingVictimId = null;
 }
 
 // Spread players evenly in a ring so they never stack on each other
@@ -60,31 +68,53 @@ function getDistance(a, b) {
 }
 
 function checkWinCondition(room) {
-  const players         = Object.values(room.players);
-  const aliveImpostors  = players.filter(p => p.role === "impostor" && p.alive);
-  const aliveCrewmates  = players.filter(p => p.role === "crewmate" && p.alive);
-  if (aliveImpostors.length >= aliveCrewmates.length) return "impostors";
-  if (room.taskProgress.completed >= room.taskProgress.total) return "crewmates";
+  const players        = Object.values(room.players);
+  const aliveImpostors = players.filter(p => p.role === "impostor" && p.alive !== false);
+  const aliveCrewmates = players.filter(p => p.role === "crewmate" && p.alive !== false);
+  // Don't evaluate until roles are assigned
+  if (aliveImpostors.length === 0 && aliveCrewmates.length === 0) return null;
+  // Impostors win when they match or outnumber alive crewmates (and game has started)
+  if (aliveImpostors.length > 0 && aliveImpostors.length >= aliveCrewmates.length) return "impostors";
+  // Crewmates win: all tasks done OR no impostors left
+  if (room.taskProgress.total > 0 && room.taskProgress.completed >= room.taskProgress.total) return "crewmates";
   if (aliveImpostors.length === 0) return "crewmates";
   return null;
 }
 
-function cleanupPlayer(socketId) {
+// Timers for soft-disconnected players (socketId → timeout handle)
+const reconnectTimers = {};
+
+// immediate=true  → hard-remove immediately (explicit leave / lobby disconnect)
+// immediate=false → soft-remove during active phases (give 30s to refresh/rejoin)
+function cleanupPlayer(socketId, immediate = false) {
   for (const code of Object.keys(rooms)) {
     const room = rooms[code];
     if (!room.players[socketId]) continue;
-    delete room.players[socketId];
 
-    if (room.hostId === socketId) {
-      const remaining = Object.keys(room.players);
-      room.hostId = remaining[0] || null;
-    }
-
-    if (Object.keys(room.players).length === 0) {
-      delete rooms[code];
-      console.log(`Room ${code} deleted (empty)`);
-    } else {
+    const activePhases = ["character_select", "game_mode", "delegating", "countdown", "role_reveal", "playing", "meeting", "results"];
+    if (!immediate && activePhases.includes(room.phase)) {
+      // Soft disconnect — mark player and wait 30s for rejoin
+      room.players[socketId].disconnected = true;
       broadcastRoom(code);
+      clearTimeout(reconnectTimers[socketId]);
+      reconnectTimers[socketId] = setTimeout(() => cleanupPlayer(socketId, true), 30_000);
+    } else {
+      // Hard remove
+      clearTimeout(reconnectTimers[socketId]);
+      delete reconnectTimers[socketId];
+      delete room.players[socketId];
+
+      if (room.hostId === socketId) {
+        const remaining = Object.keys(room.players);
+        room.hostId = remaining[0] || null;
+      }
+
+      if (Object.keys(room.players).length === 0) {
+        delete rooms[code];
+        console.log(`Room ${code} deleted (empty)`);
+      } else {
+        broadcastRoom(code);
+      }
     }
     break;
   }
@@ -95,7 +125,7 @@ io.on("connection", (socket) => {
   console.log("Player connected:", socket.id);
 
   // ── Create room ──────────────────────────────────────────────────────────
-  socket.on("createRoom", ({ name, color, walletPubkey }) => {
+  socket.on("createRoom", ({ name, color, walletPubkey, chainGameId }) => {
     let code;
     do { code = generateCode(); } while (rooms[code]);
 
@@ -105,8 +135,9 @@ io.on("connection", (socket) => {
       phase: "lobby",
       gameMode: "impostor",
       map: "castle_on_hills",
-      chainGameId: String(Date.now()),  // on-chain game_id shared with all players
+      chainGameId: chainGameId || String(Date.now()),  // use host-provided ID so all clients share same on-chain game
       delegatedPlayers: {},             // tracks which players completed on-chain delegation
+      allDelegated: false,
       maxPlayers: 10,
       taskProgress: { completed: 0, total: 0 },
       votes: {},
@@ -247,24 +278,72 @@ io.on("connection", (socket) => {
       })),
     });
 
-    // All players delegated — start countdown
+    // All players delegated — notify host to start
     if (delegatedCount >= totalPlayers) {
-      room.phase = "countdown";
-      broadcastRoom(code);
-
-      let count = 5;
-      const interval = setInterval(() => {
-        io.to(code).emit("countdownTick", { count });
-        count--;
-        if (count < 0) {
-          clearInterval(interval);
-          assignRoles(room);
-          room.phase = "role_reveal";
-          broadcastRoom(code);
-          broadcastRoles(code);
-        }
-      }, 1000);
+      room.allDelegated = true;
+      io.to(code).emit("allDelegated");
     }
+  });
+
+  // ── Host syncs ER-assigned roles to server before countdown ends ──────────
+  // Called by hostStartGame() after chain.syncAllState() resolves.
+  // roles = { [walletPubkey]: "impostor" | "crewmate" }
+  socket.on("syncRoles", ({ code, roles }) => {
+    const room = rooms[code];
+    if (!room || room.hostId !== socket.id) return;
+    room._erRoles = roles; // stored until countdown ends
+    console.log(`[syncRoles] room ${code}:`, Object.values(roles).reduce((a, r) => { a[r] = (a[r]||0)+1; return a; }, {}));
+  });
+
+  // ── Host manually starts countdown after all delegated ─────────────────────
+  socket.on("beginCountdown", ({ code }) => {
+    const room = rooms[code];
+    if (!room || room.hostId !== socket.id || !room.allDelegated) return;
+    room.phase = "countdown";
+    broadcastRoom(code);
+
+    let count = 5;
+    const interval = setInterval(() => {
+      io.to(code).emit("countdownTick", { count });
+      count--;
+      if (count < 0) {
+        clearInterval(interval);
+        const pids = Object.keys(room.players);
+
+        if (room._erRoles && Object.keys(room._erRoles).length > 0) {
+          // Apply ER-assigned roles (walletPubkey → role) — source of truth
+          pids.forEach(pid => {
+            const wp = room.players[pid].walletPubkey;
+            room.players[pid].role     = (wp && room._erRoles[wp]) || "crewmate";
+            room.players[pid].alive    = true;
+            room.players[pid].votedFor = null;
+            room.players[pid].tasks    = { completed: 0, total: 3 };
+          });
+          room.taskProgress    = { completed: 0, total: pids.length * 3 };
+          room.votes           = {};
+          room.meetingCallerId = null;
+          room.meetingVictimId = null;
+        } else {
+          // Fallback: server-random roles (ER sync didn't arrive in time)
+          assignRoles(room);
+        }
+
+        // Send each player their own role privately
+        pids.forEach(pid => {
+          io.to(pid).emit("roleAssigned", { role: room.players[pid].role });
+        });
+
+        room.phase = "role_reveal";
+        broadcastRoom(code);
+
+        // Auto-advance to "playing" so later broadcastRoom calls use correct phase
+        setTimeout(() => {
+          if (!rooms[code] || rooms[code].phase !== "role_reveal") return;
+          rooms[code].phase = "playing";
+          broadcastRoom(code);
+        }, 7000);
+      }
+    }, 1000);
   });
 
   // ── In-game movement ─────────────────────────────────────────────────────
@@ -396,16 +475,56 @@ io.on("connection", (socket) => {
     broadcastRoom(code);
   });
 
+  // ── Rejoin room (page refresh recovery) ──────────────────────────────────
+  socket.on("rejoinRoom", ({ code, walletPubkey, name }) => {
+    const room = rooms[code];
+    if (!room) { socket.emit("roomError", { message: "Room no longer exists." }); return; }
+
+    // Find the player's old entry by walletPubkey (primary) or name (fallback)
+    let oldId = null;
+    for (const [pid, p] of Object.entries(room.players)) {
+      if (walletPubkey && p.walletPubkey === walletPubkey) { oldId = pid; break; }
+    }
+    if (!oldId) {
+      for (const [pid, p] of Object.entries(room.players)) {
+        if (p.name === name) { oldId = pid; break; }
+      }
+    }
+    if (!oldId) { socket.emit("roomError", { message: "Not a member of this room." }); return; }
+
+    // Cancel the pending hard-removal timer
+    clearTimeout(reconnectTimers[oldId]);
+    delete reconnectTimers[oldId];
+
+    // Migrate player to new socket.id
+    const playerData = { ...room.players[oldId], id: socket.id, disconnected: false };
+    delete room.players[oldId];
+    room.players[socket.id] = playerData;
+
+    if (room.hostId === oldId) room.hostId = socket.id;
+
+    // Preserve delegation status under new id
+    if (room.delegatedPlayers?.[oldId]) {
+      room.delegatedPlayers[socket.id] = true;
+      delete room.delegatedPlayers[oldId];
+    }
+
+    socket.join(code);
+    socket.emit("rejoinedRoom", { code, room });
+    broadcastRoom(code);
+    console.log(`${socket.id} rejoined room ${code} (was ${oldId})`);
+  });
+
   // ── Leave room ────────────────────────────────────────────────────────────
   socket.on("leaveRoom", ({ code }) => {
     socket.leave(code);
-    cleanupPlayer(socket.id);
+    cleanupPlayer(socket.id, true); // explicit leave — always hard-remove
   });
 
   // ── Disconnect ────────────────────────────────────────────────────────────
   socket.on("disconnect", () => {
     console.log("Player disconnected:", socket.id);
-    cleanupPlayer(socket.id);
+    cleanupPlayer(socket.id); // soft in active phases, hard in lobby
   });
 });
 

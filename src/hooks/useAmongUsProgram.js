@@ -96,16 +96,27 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
   const [error,           setError]           = useState(null);
   const [voteSession,     setVoteSession]     = useState(1);
   const [isFinalized,     setIsFinalized]     = useState(false);
+  const [latestKill,      setLatestKill]      = useState(null); // { victimPk, killedAt }
 
-  const programRef    = useRef(null);
-  const programERRef  = useRef(null);
-  const providerERRef = useRef(null);
-  const subIds        = useRef([]);
-  const prevStatesRef = useRef({});
+  const programRef       = useRef(null);
+  const programERRef     = useRef(null);
+  const providerERRef    = useRef(null);
+  const subIds           = useRef([]);
+  const prevStatesRef    = useRef({});
+  const prevGameStateRef = useRef(null);  // for alive[] diff (kill detection)
 
   const gid     = useMemo(() => new BN(gameIdStr || "0"), [gameIdStr]);
   const gamePda = useMemo(() => getGamePda(gid), [gid]);
   const myPda   = useMemo(() => publicKey ? getPlayerPda(gid, publicKey) : null, [gid, publicKey]);
+
+  // ER-authoritative role derived from on-chain PlayerState
+  // Anchor encodes Role::Impostor as { impostor: {} }, Role::Crewmate as { crewmate: {} }
+  const erRole = useMemo(() => {
+    if (!playerState?.role) return null;
+    if (playerState.role?.impostor  !== undefined) return "impostor";
+    if (playerState.role?.crewmate  !== undefined) return "crewmate";
+    return null;
+  }, [playerState]);
 
   // ── Base program ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -128,7 +139,7 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     programERRef.current  = new anchor.Program(IDL, erProvider);
   }, [publicKey, signTransaction, teeToken]);
 
-  // ── Kill detection ────────────────────────────────────────────────────────
+  // ── Kill detection (log) ──────────────────────────────────────────────────
   useEffect(() => {
     Object.entries(allPlayerStates).forEach(([pk, ps]) => {
       const prev = prevStatesRef.current[pk];
@@ -137,6 +148,22 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     });
     prevStatesRef.current = allPlayerStates;
   }, [allPlayerStates]);
+
+  // ── Dynamic voteState subscription — re-subscribes each new meeting ───────
+  useEffect(() => {
+    if (!teeToken || voteSession === 0) return;
+    const er = providerERRef.current;
+    if (!er) return;
+    const votePda = getVotePda(gid, voteSession);
+    const id = er.connection.onAccountChange(votePda, info => {
+      if (!info) return;
+      try {
+        const d = programRef.current?.coder.accounts.decode("voteState", info.data);
+        if (d) setVoteState(d);
+      } catch {}
+    });
+    return () => er.connection.removeAccountChangeListener(id);
+  }, [voteSession, gid, teeToken]);
 
   // ── TX helpers ────────────────────────────────────────────────────────────
   const sendBase = useCallback(async (tx, label = "Base TX") => {
@@ -251,9 +278,21 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     const id1 = er.connection.onAccountChange(gamePda, info => {
       if (!info) return;
       try {
-        const d = programRef.current.coder.accounts.decode("gameState", info.data);
-        setGameState(d);
-        if (d.voteSession) setVoteSession(d.voteSession);
+        const next = programRef.current.coder.accounts.decode("gameState", info.data);
+        const prev = prevGameStateRef.current;
+
+        // ── Kill detection: alive[i] flipped false during Playing phase ──────
+        if (prev && next.phase?.playing !== undefined) {
+          for (let i = 0; i < next.playerCount; i++) {
+            if (prev.alive[i] && !next.alive[i]) {
+              setLatestKill({ victimPk: next.players[i], killedAt: Date.now() });
+            }
+          }
+        }
+
+        prevGameStateRef.current = next;
+        setGameState(next);
+        if (next.voteSession) setVoteSession(next.voteSession);
         syncAllState();
       } catch {}
     });
@@ -281,25 +320,33 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     },
 
     // ── Lobby (Base Layer) ──────────────────────────────────────────────────────
+    // gameIdStr is optional override — use when calling from createRoom/joinRoom
+    // before state has re-rendered with the new chainGameId.
 
-    async createGame() {
-      if (!programRef.current || !publicKey || !myPda) return;
+    async createGame(gameIdOverride) {
+      if (!programRef.current || !publicKey) throw new Error("Wallet not ready");
+      const activeGid     = gameIdOverride ? new BN(gameIdOverride) : gid;
+      const activeGamePda = getGamePda(activeGid);
+      const activeMyPda   = getPlayerPda(activeGid, publicKey);
       setIsLoading(true);
       try {
-        const ix = await programRef.current.methods.createGame(gid)
-          .accounts({ game: gamePda, playerState: myPda, host: publicKey, systemProgram: SystemProgram.programId })
+        const ix = await programRef.current.methods.createGame(activeGid)
+          .accounts({ game: activeGamePda, playerState: activeMyPda, host: publicKey, systemProgram: SystemProgram.programId })
           .instruction();
         await sendBase(new Transaction().add(ix), "Create game");
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
     },
 
-    async joinGame() {
-      if (!programRef.current || !publicKey || !myPda) return;
+    async joinGame(gameIdOverride) {
+      if (!programRef.current || !publicKey) throw new Error("Wallet not ready");
+      const activeGid     = gameIdOverride ? new BN(gameIdOverride) : gid;
+      const activeGamePda = getGamePda(activeGid);
+      const activeMyPda   = getPlayerPda(activeGid, publicKey);
       setIsLoading(true);
       try {
-        const ix = await programRef.current.methods.joinGame(gid)
-          .accounts({ game: gamePda, playerState: myPda, player: publicKey, systemProgram: SystemProgram.programId })
+        const ix = await programRef.current.methods.joinGame(activeGid)
+          .accounts({ game: activeGamePda, playerState: activeMyPda, player: publicKey, systemProgram: SystemProgram.programId })
           .instruction();
         await sendBase(new Transaction().add(ix), "Join game");
       } catch (e) { setError(e.message); throw e; }
@@ -525,6 +572,7 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     gameState, playerState, allPlayerStates, voteState,
     teeToken, serverTimeOffset, isLoading, error,
     voteSession, isFinalized,
+    latestKill, erRole,
     commands, syncAllState, subscribe,
     gamePda, myPda, gid,
     publicKey,

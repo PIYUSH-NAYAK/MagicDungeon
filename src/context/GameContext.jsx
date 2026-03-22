@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useAmongUsProgram } from "../hooks/useAmongUsProgram";
+import { toast } from "sonner";
 
 const GameContext = createContext(null);
 
@@ -35,17 +36,37 @@ export function GameProvider({ children }) {
   const [onChainCreated, setOnChainCreated] = useState(false); // true once createGame/joinGame confirmed
   const [txLogs, setTxLogs]             = useState([]); // feeds ChainLog UI
   const [delegationProgress, setDelegProgess] = useState(null); // { delegated, total, players[] }
+  const [allDelegated, setAllDelegated] = useState(false);
+  const [gameStartedAt, setGameStartedAt] = useState(null); // ms timestamp when "playing" phase began
 
   const { publicKey } = useWallet();
 
   // Append a TX log entry — passed to useAmongUsProgram as onTxLog
-  const onTxLog = (log) => setTxLogs(prev => {
-    const exists = prev.find(l => l.id === log.id);
-    if (exists) return prev.map(l => l.id === log.id ? { ...l, ...log } : l);
-    return [...prev, log];
-  });
+  const onTxLog = (log) => {
+    setTxLogs(prev => {
+      const exists = prev.find(l => l.id === log.id);
+      if (exists) return prev.map(l => l.id === log.id ? { ...l, ...log } : l);
+      return [...prev, log];
+    });
+    if (log.status === "confirmed" && log.sig) {
+      const explorerUrl = log.isER
+        ? `https://solscan.io/tx/${log.sig}?cluster=custom&customUrl=${encodeURIComponent("https://tee.magicblock.app")}`
+        : `https://solscan.io/tx/${log.sig}?cluster=devnet`;
+      toast.success(log.label, {
+        description: `${log.sig.slice(0, 8)}…${log.sig.slice(-6)}`,
+        action: { label: "View", onClick: () => window.open(explorerUrl, "_blank") },
+        duration: 6000,
+      });
+    } else if (log.status === "failed") {
+      toast.error(`Failed: ${log.label}`, { duration: 5000 });
+    }
+  };
 
   const chain = useAmongUsProgram(chainGameId || "0", { onTxLog });
+
+  // Declared early so it's available in useEffect dependency arrays below
+  // (re-evaluated each render, same logic as the const at the bottom)
+  const isHost = !!(room && myId && myId === room?.hostId);
 
   const socketRef = useRef(null);
   const roomRef   = useRef(null);
@@ -94,6 +115,15 @@ export function GameProvider({ children }) {
       myIdRef.current = s.id;
       setMyId(s.id);
       setSocketReady(true);
+
+      // Attempt session recovery after a page refresh
+      const saved = sessionStorage.getItem("mg_session");
+      if (saved) {
+        try {
+          const session = JSON.parse(saved);
+          s.emit("rejoinRoom", session);
+        } catch {}
+      }
     });
 
     s.on("disconnect", () => {
@@ -111,8 +141,14 @@ export function GameProvider({ children }) {
       seedTransforms(room.players, true);
       setRoom(room);
       setPhase("lobby");
-      // Read chainGameId from server so all clients share the same on-chain game_id
       if (room.chainGameId) setChainGameId(room.chainGameId);
+      // Persist session so a page refresh can rejoin automatically
+      const me = room.players[s.id];
+      sessionStorage.setItem("mg_session", JSON.stringify({
+        code: room.code,
+        walletPubkey: me?.walletPubkey || null,
+        name: me?.name || "",
+      }));
     });
 
     s.on("roomJoined", ({ room }) => {
@@ -120,6 +156,31 @@ export function GameProvider({ children }) {
       setRoom(room);
       setPhase("lobby");
       if (room.chainGameId) setChainGameId(room.chainGameId);
+      const me = room.players[s.id];
+      sessionStorage.setItem("mg_session", JSON.stringify({
+        code: room.code,
+        walletPubkey: me?.walletPubkey || null,
+        name: me?.name || "",
+      }));
+    });
+
+    s.on("rejoinedRoom", ({ room }) => {
+      seedTransforms(room.players, true);
+      setRoom(room);
+      if (room.chainGameId) setChainGameId(room.chainGameId);
+      setOnChainCreated(true);
+      // Restore my player state
+      const me = room.players[s.id];
+      if (me) {
+        setMyRole(me.role || null);
+        setIsAlive(me.alive !== false);
+      }
+      // Jump straight to the room's current phase
+      const p = room.phase;
+      if (["lobby","character_select","game_mode","delegating","countdown","role_reveal","playing","meeting","results"].includes(p)) {
+        setPhase(p);
+      }
+      console.log("[socket] rejoined room", room.code, "phase:", room.phase);
     });
 
     s.on("roomUpdate", (updated) => {
@@ -134,6 +195,7 @@ export function GameProvider({ children }) {
 
       const authoritativePhases = ["countdown", "role_reveal", "playing", "meeting", "results"];
       if (authoritativePhases.includes(updated.phase)) {
+        if (updated.phase === "playing") setGameStartedAt(prev => prev ?? Date.now());
         setPhase(updated.phase);
       } else if (updated.phase === "lobby") {
         setPhase("lobby");
@@ -145,11 +207,12 @@ export function GameProvider({ children }) {
     });
 
     s.on("delegationProgress", (progress) => setDelegProgess(progress));
+    s.on("allDelegated", () => setAllDelegated(true));
 
     s.on("countdownTick", ({ count }) => setCount(count));
 
     s.on("roleAssigned", ({ role }) => {
-      console.log("[game] role assigned:", role);
+      console.log("[game] role assigned (server-confirmed):", role);
       setMyRole(role);
       setIsAlive(true);
     });
@@ -172,12 +235,11 @@ export function GameProvider({ children }) {
 
     s.on("meetingResult", (result) => {
       setMeetingResult(result);
-      // Auto-trigger resolveVote on-chain (host resolves based on socket result)
+      // Host resolves vote on-chain
       if (result && myIdRef.current === roomRef.current?.hostId) {
-        const ejectedPlayer = result.ejectedId
-          ? roomRef.current?.players[result.ejectedId]
-          : null;
-        const ejectedWallet = ejectedPlayer?.walletPubkey || null;
+        const ejectedSocketId = result.ejected?.id || null;
+        const ejectedPlayer   = ejectedSocketId ? roomRef.current?.players[ejectedSocketId] : null;
+        const ejectedWallet   = ejectedPlayer?.walletPubkey || null;
         chain.commands.resolveVote(ejectedWallet)
           .catch(e => console.warn("[chain] resolveVote:", e.message));
       }
@@ -188,6 +250,8 @@ export function GameProvider({ children }) {
     s.on("roomError", ({ message }) => {
       setError(message);
       setTimeout(() => setError(null), 3500);
+      // If a rejoin attempt failed, clear the stale session so user gets the menu
+      sessionStorage.removeItem("mg_session");
     });
 
     // ── playerMoved: write to Map ONLY — zero React re-renders ──────────────
@@ -198,27 +262,102 @@ export function GameProvider({ children }) {
     return () => { s.disconnect(); socketRef.current = null; };
   }, []);
 
-  // ── Auto on-chain: createGame when host's room+chainGameId are ready ────────
-  useEffect(() => {
-    if (!chainGameId || !room || !myId || myId !== room.hostId) return;
-    chain.commands.createGame()
-      .then(() => setOnChainCreated(true))
-      .catch(e => console.warn("[chain] createGame:", e.message));
-  }, [chainGameId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Auto on-chain: joinGame when non-host gets their chainGameId ─────────────
-  useEffect(() => {
-    if (!chainGameId || !room || !myId || myId === room.hostId) return;
-    chain.commands.joinGame()
-      .then(() => setOnChainCreated(true))
-      .catch(e => console.warn("[chain] joinGame:", e.message));
-  }, [chainGameId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── Manual on-chain: joiners click this in lobby (Phantom requires user gesture) ──
+  // Polls until the host's createGame TX confirms, then calls joinGame.
+  async function registerOnChain() {
+    const r = roomRef.current;
+    if (!r || !chainGameId) {
+      setError("Room or game ID not ready — try again in a moment.");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+    // Wait up to 30s for the host's createGame to confirm, then call joinGame
+    setError("⏳ Waiting for host to create game on-chain…");
+    for (let attempt = 0; attempt < 15; attempt++) {
+      try {
+        await chain.commands.joinGame(chainGameId);
+        setOnChainCreated(true);
+        setError(null);
+        return;
+      } catch (e) {
+        const isNotInit = e.message?.includes("AccountNotInitialized") || e.message?.includes("0xbc4");
+        if (!isNotInit || attempt === 14) {
+          setError(`On-chain error: ${e.message}`);
+          setTimeout(() => setError(null), 5000);
+          return;
+        }
+        // Host hasn't confirmed createGame yet — wait 2s and retry
+        await new Promise(res => setTimeout(res, 2000));
+      }
+    }
+  }
 
   // ── Auto on-chain: subscribe to ER WS when teeToken is ready ─────────────────
   useEffect(() => {
     if (!chain.teeToken) return;
     chain.subscribe();
   }, [chain.teeToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── After role_reveal: ALL players sync ER state to get their on-chain role ───
+  useEffect(() => {
+    if (phase !== "role_reveal") return;
+    // Give the ER a moment to settle after startGame TX, then sync
+    const t = setTimeout(() => chain.syncAllState(), 1500);
+    return () => clearTimeout(t);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── ER role as fallback display (server's roleAssigned is primary) ──────────
+  useEffect(() => {
+    if (!chain.erRole) return;
+    // Only override if server hasn't set a role yet (e.g. ER subscription fires first)
+    setMyRole(prev => prev || chain.erRole);
+  }, [chain.erRole]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── ER-driven: task progress (authoritative counters from chain) ──────────────
+  useEffect(() => {
+    const gs = chain.gameState;
+    if (!gs || gs.totalTasks === 0) return;
+    setTaskProgress({ completed: gs.tasksCompleted, total: gs.totalTasks });
+  }, [chain.gameState?.tasksCompleted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── ER-driven: phase transitions ─────────────────────────────────────────────
+  useEffect(() => {
+    const gs = chain.gameState;
+    if (!gs) return;
+    // Game over — ER is authoritative for the final result
+    if (gs.phase?.ended !== undefined && phase !== "results") {
+      const r = gs.result;
+      if (r?.crewmatesWin !== undefined) setWinner("crewmates");
+      else if (r?.impostorsWin !== undefined) setWinner("impostors");
+      setPhase("results");
+    }
+  }, [chain.gameState?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── ER-driven: kill broadcast from alive[] diff ───────────────────────────────
+  useEffect(() => {
+    const kill = chain.latestKill;
+    if (!kill) return;
+    const r = roomRef.current;
+    if (!r) return;
+    const victimB58 = kill.victimPk.toBase58();
+    // Find the socket-player whose walletPubkey matches the on-chain victim pubkey
+    const entry = Object.entries(r.players).find(([, p]) => p.walletPubkey === victimB58);
+    if (!entry) return;
+    const [victimSocketId] = entry;
+    // Mark dead in local room state — mirrors what the socket "playerKilled" event does
+    setRoom(prev => {
+      if (!prev?.players[victimSocketId]) return prev;
+      return {
+        ...prev,
+        players: {
+          ...prev.players,
+          [victimSocketId]: { ...prev.players[victimSocketId], alive: false, animation: "death" },
+        },
+      };
+    });
+    // If it's me, update my liveness
+    if (victimSocketId === myIdRef.current) setIsAlive(false);
+  }, [chain.latestKill]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── runDelegation: called from DelegatingScreen button click ──────────────
   // MUST be user-gesture initiated — Phantom blocks auto-fired useEffect transactions
@@ -257,15 +396,27 @@ export function GameProvider({ children }) {
   const sock = () => socketRef.current;
 
   // ── Actions ────────────────────────────────────────────────────────────────
-  function createRoom() {
+  async function createRoom() {
     const walletPubkey = publicKey?.toBase58() || null;
-    sock()?.emit("createRoom", { name: myPlayer.name || "Player", color: myPlayer.color, walletPubkey });
-    // Generate a unique game_id from timestamp for the on-chain contract
     const gameId = String(Date.now());
-    setChainGameId(gameId);
+    // Send gameId to server so all clients share the same on-chain game PDA
+    sock()?.emit("createRoom", { name: myPlayer.name || "Player", color: myPlayer.color, walletPubkey, chainGameId: gameId });
+    // Wait for roomCreated to confirm the server echoed back the same gameId (still within gesture)
+    const confirmedId = await new Promise((resolve) => {
+      socketRef.current?.once("roomCreated", ({ room }) => resolve(room.chainGameId || gameId));
+    });
+    setChainGameId(confirmedId);
+    try {
+      await chain.commands.createGame(confirmedId);
+      setOnChainCreated(true);
+    } catch (e) {
+      console.warn("[chain] createGame:", e.message);
+      setError(`On-chain error: ${e.message}`);
+      setTimeout(() => setError(null), 5000);
+    }
   }
 
-  function joinRoom(code) {
+  async function joinRoom(code) {
     const walletPubkey = publicKey?.toBase58() || null;
     sock()?.emit("joinRoom", {
       code: code.toUpperCase(),
@@ -273,8 +424,28 @@ export function GameProvider({ children }) {
       color: myPlayer.color,
       walletPubkey,
     });
-    // Use the room code as the seed for the game_id (host's timestamp)
-    // Will be overwritten when roomJoined fires with the real room data
+    // Wait for roomJoined response (still within the button-click async chain → Phantom accepts it)
+    const gameId = await new Promise((resolve) => {
+      socketRef.current?.once("roomJoined", ({ room }) => resolve(room.chainGameId || null));
+    });
+    if (!gameId) return;
+    setChainGameId(gameId);
+    // Retry joinGame until host's createGame confirms (AccountNotInitialized = host TX pending)
+    for (let attempt = 0; attempt < 15; attempt++) {
+      try {
+        await chain.commands.joinGame(gameId);
+        setOnChainCreated(true);
+        return;
+      } catch (e) {
+        const notInit = e.message?.includes("AccountNotInitialized") || e.message?.includes("0xbc4");
+        if (!notInit || attempt === 14) {
+          setError(`On-chain join failed: ${e.message}`);
+          setTimeout(() => setError(null), 5000);
+          return;
+        }
+        await new Promise(res => setTimeout(res, 2000));
+      }
+    }
   }
 
   function confirmCharacter(name, color) {
@@ -314,6 +485,40 @@ export function GameProvider({ children }) {
     sock()?.emit("startCountdown", { code: r.code });
   }
 
+  function beginCountdown() {
+    const r = roomRef.current;
+    if (!r) return;
+    sock()?.emit("beginCountdown", { code: r.code });
+  }
+
+  // ── hostStartGame: called from DelegatingScreen "Start Game" button ────────
+  // Phantom popup (startGame ER TX) fires BEFORE countdown begins.
+  async function hostStartGame() {
+    try {
+      await chain.commands.startGame();   // Phantom popup — must be user gesture
+      await chain.syncAllState();         // fetch ER-assigned roles for all players
+    } catch (e) {
+      console.warn("[chain] startGame:", e.message);
+      setError(`Start game failed: ${e.message}`);
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
+
+    // Sync ER roles to server so kill/win-condition logic uses the same assignment
+    const allStates = chain.allPlayerStates;
+    if (allStates && Object.keys(allStates).length > 0) {
+      const roles = {};
+      for (const [pk, ps] of Object.entries(allStates)) {
+        roles[pk] = ps?.role?.impostor !== undefined ? "impostor" : "crewmate";
+      }
+      const r = roomRef.current;
+      if (r) sock()?.emit("syncRoles", { code: r.code, roles });
+      console.log("[chain] synced ER roles to server:", roles);
+    }
+
+    beginCountdown(); // THEN kick off the 5s countdown via socket
+  }
+
   function setReady(val) {
     const r = roomRef.current;
     if (!r) return;
@@ -334,7 +539,6 @@ export function GameProvider({ children }) {
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("killPlayer", { code: r.code, targetId });
-    // On-chain: look up victim's wallet pubkey from room players
     const victim = r.players[targetId];
     if (victim?.walletPubkey) {
       chain.commands.killPlayer(victim.walletPubkey)
@@ -362,7 +566,6 @@ export function GameProvider({ children }) {
     const r = roomRef.current;
     if (!r) return;
     sock()?.emit("castVote", { code: r.code, targetId });
-    // On-chain vote: null targetId = skip
     const target = targetId ? r.players[targetId]?.walletPubkey || null : null;
     chain.commands.submitVote(target)
       .catch(e => console.warn("[chain] submitVote:", e.message));
@@ -379,9 +582,11 @@ export function GameProvider({ children }) {
   function leaveRoom() {
     const r = roomRef.current;
     if (r) sock()?.emit("leaveRoom", { code: r.code });
+    sessionStorage.removeItem("mg_session");
     playerTransformsRef.current.clear();
     setRoom(null); setMyRole(null); setIsAlive(true);
     setWinner(null); setMeetingInfo(null); setMeetingResult(null);
+    setGameStartedAt(null);
     setPhase("menu");
   }
 
@@ -394,9 +599,7 @@ export function GameProvider({ children }) {
   }
 
   function goToMenu()        { setPhase("menu"); }
-  function dismissRoleReveal() { setPhase("playing"); }
-
-  const isHost = !!(room && myId && myId === room.hostId);
+  function dismissRoleReveal() { setGameStartedAt(Date.now()); setPhase("playing"); }
 
   return (
     <GameContext.Provider value={{
@@ -411,7 +614,7 @@ export function GameProvider({ children }) {
       playerTransformsRef,   // ref to the live transform Map
       createRoom, joinRoom, startGame,
       confirmCharacter, selectGameMode, selectMap,
-      startCountdown, setReady,
+      startCountdown, beginCountdown, hostStartGame, setReady,
       emitMove,
       killPlayer, reportBody, callEmergencyMeeting,
       castVote, completeTask,
@@ -423,6 +626,9 @@ export function GameProvider({ children }) {
       walletPublicKey: publicKey,
       txLogs,
       delegationProgress,
+      allDelegated,
+      gameStartedAt,
+      registerOnChain, // call from lobby button click — createGame (host) or joinGame (player)
       runDelegation,   // call from button click — triggers Phantom for delegation txs
     }}>
       {children}

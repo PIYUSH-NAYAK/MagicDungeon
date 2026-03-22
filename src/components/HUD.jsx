@@ -1,29 +1,58 @@
+import { useEffect, useState } from "react";
 import { useGame } from "../context/GameContext";
+
+const INITIAL_KILL_COOLDOWN = 30; // seconds
 
 /**
  * In-game HUD — pure DOM overlay (no Three.js Html wrapper needed)
- * Layout:
- *   Top-left    → player card (name + color dot + role badge)
- *   Top bar     → task progress bar
- *   Bottom-right → action buttons (emergency / report / kill)
- *   Center      → ghost notice when dead
  */
 export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergency }) {
-  const { myRole, isAlive, taskProgress, myPlayer } = useGame();
+  const { myRole, isAlive, taskProgress, myPlayer, chain, room, gameStartedAt } = useGame();
+
+  // Tick every 500ms so cooldown display stays live
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (myRole !== "impostor") return;
+    const t = setInterval(() => tick(n => n + 1), 500);
+    return () => clearInterval(t);
+  }, [myRole]);
 
   const isImpostor = myRole === "impostor";
   const taskPct = taskProgress.total > 0
     ? Math.min(100, (taskProgress.completed / taskProgress.total) * 100)
     : 0;
 
+  // Kill cooldown — 30s initial on game start, then on-chain cooldown between kills
+  const serverNow        = (Date.now() / 1000) + (chain?.serverTimeOffset || 0);
+  const cooldownExpiry   = chain?.playerState?.killCooldown?.toNumber?.() ?? 0;
+  const onChainCooldown  = Math.max(0, Math.ceil(cooldownExpiry - serverNow));
+  const elapsedSinceStart = gameStartedAt ? (Date.now() - gameStartedAt) / 1000 : 0;
+  const initialCooldown  = Math.max(0, Math.ceil(INITIAL_KILL_COOLDOWN - elapsedSinceStart));
+  const cooldownLeft     = Math.max(onChainCooldown, initialCooldown);
+  const killReady        = cooldownLeft === 0;
+
+  // Chain stats
+  const gs           = chain?.gameState;
+  const aliveCount   = gs ? gs.alive.filter(Boolean).length : Object.values(room?.players || {}).filter(p => p.alive).length;
+  const totalPlayers = gs?.playerCount ?? Object.keys(room?.players || {}).length;
+  const meetingsCalled = gs?.voteSession ?? 0;
+  const tasksLeft    = taskProgress.total > 0 ? taskProgress.total - taskProgress.completed : null;
+
+  // Fellow impostors (visible to impostor only)
+  const fellowImpostors = isImpostor && chain?.allPlayerStates
+    ? Object.entries(chain.allPlayerStates)
+        .filter(([pk, ps]) => ps?.role?.impostor !== undefined && pk !== chain?.publicKey?.toBase58())
+        .map(([pk]) => {
+          const p = Object.values(room?.players || {}).find(p => p.walletPubkey === pk);
+          return p ? p.name : pk.slice(0, 6) + "…";
+        })
+    : [];
+
   return (
     <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 500, fontFamily: "'Inter', 'Segoe UI', Arial, sans-serif" }}>
 
-      {/* ── Top progress bar ──────────────────────────────────────────────── */}
-      <div style={{
-        position: "absolute", top: 0, left: 0, right: 0, height: 4,
-        background: "rgba(0,0,0,.4)",
-      }}>
+      {/* ── Top progress bar ── */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 4, background: "rgba(0,0,0,.4)" }}>
         <div style={{
           height: "100%", width: `${taskPct}%`,
           background: "linear-gradient(90deg,#2ecc71,#1abc9c)",
@@ -32,12 +61,8 @@ export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergenc
         }} />
       </div>
 
-      {/* ── Top-left: player card ─────────────────────────────────────────── */}
-      <div style={{
-        position: "absolute", top: 16, left: 16,
-        display: "flex", flexDirection: "column", gap: 8,
-        pointerEvents: "none",
-      }}>
+      {/* ── Top-left: player card ── */}
+      <div style={{ position: "absolute", top: 16, left: 16, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
         {/* Name + color */}
         <div style={{
           display: "flex", alignItems: "center", gap: 10,
@@ -46,23 +71,16 @@ export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergenc
           border: "1px solid rgba(255,255,255,.1)",
           boxShadow: "0 4px 20px rgba(0,0,0,.4)",
         }}>
-          {/* Color dot */}
           <div style={{
             width: 14, height: 14, borderRadius: "50%",
             background: myPlayer?.color || "#4ade80",
             boxShadow: `0 0 8px ${myPlayer?.color || "#4ade80"}`,
             flexShrink: 0,
           }} />
-          <span style={{
-            color: "#fff", fontWeight: 700, fontSize: 13,
-            letterSpacing: ".02em",
-          }}>
+          <span style={{ color: "#fff", fontWeight: 700, fontSize: 13, letterSpacing: ".02em" }}>
             {myPlayer?.name || "YOU"}
           </span>
-          <span style={{
-            color: "rgba(255,255,255,.4)", fontSize: 10,
-            fontWeight: 500,
-          }}>(you)</span>
+          <span style={{ color: "rgba(255,255,255,.4)", fontSize: 10, fontWeight: 500 }}>(you)</span>
         </div>
 
         {/* Role badge */}
@@ -76,12 +94,21 @@ export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergenc
             alignSelf: "flex-start",
           }}>
             <span style={{ fontSize: 13 }}>{isImpostor ? "🔪" : "🛡️"}</span>
-            <span style={{
-              color: isImpostor ? "#e74c3c" : "#5dade2",
-              fontWeight: 800, fontSize: 11, letterSpacing: ".08em",
-              textTransform: "uppercase",
-            }}>
+            <span style={{ color: isImpostor ? "#e74c3c" : "#5dade2", fontWeight: 800, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase" }}>
               {isImpostor ? "Impostor" : "Crewmate"}
+            </span>
+          </div>
+        )}
+
+        {/* Fellow impostors */}
+        {isImpostor && fellowImpostors.length > 0 && (
+          <div style={{
+            background: "rgba(231,76,60,.1)", border: "1px solid rgba(231,76,60,.25)",
+            borderRadius: 8, padding: "5px 12px", alignSelf: "flex-start",
+          }}>
+            <span style={{ fontSize: 10, color: "rgba(255,255,255,.4)" }}>Allies: </span>
+            <span style={{ fontSize: 11, color: "#e74c3c", fontWeight: 700 }}>
+              {fellowImpostors.join(", ")}
             </span>
           </div>
         )}
@@ -95,18 +122,66 @@ export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergenc
             border: "1px solid rgba(46,204,113,.25)",
             alignSelf: "flex-start",
           }}>
-            <div style={{
-              width: 7, height: 7, borderRadius: "50%",
-              background: "#2ecc71", boxShadow: "0 0 5px #2ecc71",
-            }} />
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#2ecc71", boxShadow: "0 0 5px #2ecc71" }} />
             <span style={{ color: "rgba(255,255,255,.65)", fontSize: 11 }}>
               Tasks: <strong style={{ color: "#2ecc71" }}>{taskProgress.completed}</strong>/{taskProgress.total}
+              {tasksLeft !== null && tasksLeft > 0 && (
+                <span style={{ color: "rgba(255,255,255,.3)", marginLeft: 4 }}>({tasksLeft} left)</span>
+              )}
             </span>
           </div>
         )}
       </div>
 
-      {/* ── Dead notice (center) ──────────────────────────────────────────── */}
+      {/* ── Top-right: chain stats ── */}
+      <div style={{
+        position: "absolute", top: 16, right: 16,
+        display: "flex", flexDirection: "column", gap: 6,
+        alignItems: "flex-end", pointerEvents: "none",
+      }}>
+        {/* Alive players */}
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          background: "rgba(0,0,0,.6)", backdropFilter: "blur(8px)",
+          borderRadius: 99, padding: "5px 12px",
+          border: "1px solid rgba(255,255,255,.08)",
+          fontSize: 12,
+        }}>
+          <span>👥</span>
+          <span style={{ color: "rgba(255,255,255,.7)", fontWeight: 600 }}>
+            {aliveCount}<span style={{ color: "rgba(255,255,255,.35)" }}>/{totalPlayers} alive</span>
+          </span>
+        </div>
+
+        {/* Meetings called */}
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          background: "rgba(0,0,0,.6)", backdropFilter: "blur(8px)",
+          borderRadius: 99, padding: "5px 12px",
+          border: "1px solid rgba(255,255,255,.08)",
+          fontSize: 12,
+        }}>
+          <span>🗳️</span>
+          <span style={{ color: "rgba(255,255,255,.7)", fontWeight: 600 }}>
+            {meetingsCalled}<span style={{ color: "rgba(255,255,255,.35)" }}> meetings called</span>
+          </span>
+        </div>
+
+        {/* On-chain badge */}
+        {chain?.teeToken && (
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            background: "rgba(46,204,113,.08)", backdropFilter: "blur(8px)",
+            borderRadius: 99, padding: "4px 10px",
+            border: "1px solid rgba(46,204,113,.2)",
+            fontSize: 10, color: "rgba(46,204,113,.7)", fontWeight: 700,
+          }}>
+            ⚡ ER live
+          </div>
+        )}
+      </div>
+
+      {/* ── Dead notice ── */}
       {!isAlive && (
         <div style={{
           position: "absolute", top: "50%", left: "50%",
@@ -121,7 +196,7 @@ export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergenc
         </div>
       )}
 
-      {/* ── Bottom-right: action buttons ──────────────────────────────────── */}
+      {/* ── Bottom-right: action buttons ── */}
       {isAlive && (
         <div style={{
           position: "absolute", bottom: 24, right: 24,
@@ -129,7 +204,6 @@ export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergenc
           alignItems: "flex-end",
           pointerEvents: "all",
         }}>
-
           {/* Emergency meeting */}
           <button onClick={onEmergency} style={BTN.emergency}
             onMouseEnter={e => e.currentTarget.style.background = "rgba(243,156,18,.3)"}
@@ -138,7 +212,7 @@ export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergenc
             🚨 Emergency Meeting
           </button>
 
-          {/* Report body — only when near a corpse */}
+          {/* Report body */}
           {nearbyDeadId && (
             <button onClick={onReport} style={BTN.report}>
               📢 Report Body
@@ -148,11 +222,11 @@ export function HUD({ nearbyDeadId, nearbyPlayerId, onKill, onReport, onEmergenc
           {/* Kill — impostor only */}
           {isImpostor && (
             <button
-              onClick={nearbyPlayerId ? onKill : undefined}
-              disabled={!nearbyPlayerId}
-              style={nearbyPlayerId ? BTN.kill : BTN.killDisabled}
+              onClick={nearbyPlayerId && killReady ? onKill : undefined}
+              disabled={!nearbyPlayerId || !killReady}
+              style={nearbyPlayerId && killReady ? BTN.kill : BTN.killDisabled}
             >
-              🔪 Kill
+              {cooldownLeft > 0 ? `🔪 ${cooldownLeft}s` : "🔪 Kill"}
             </button>
           )}
         </div>

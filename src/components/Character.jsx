@@ -8,18 +8,25 @@ import React, { useEffect, useRef, useMemo } from "react";
 import { useGraph } from "@react-three/fiber";
 import { SkeletonUtils } from "three-stdlib";
 
-export function Character({ animation, color, ...props }) {
+export function Character({ animation, color, ghost, ...props }) {
   const group = useRef();
   const { scene, materials, animations } = useGLTF("/models/character.glb");
   const clone = useMemo(() => SkeletonUtils.clone(scene), [scene]);
   const { nodes } = useGraph(clone);
 
-  // Clone material per instance so skinned mesh bone matrices don't overwrite each other
+  // Clone material per instance; ghost = translucent blue-white
   const mat = useMemo(() => {
     const m = materials.Material.clone();
-    if (color) m.color.set(color);
+    if (ghost) {
+      m.color.set("#aaccff");
+      m.transparent = true;
+      m.opacity = 0.42;
+      m.depthWrite = false;
+    } else if (color) {
+      m.color.set(color);
+    }
     return m;
-  }, [materials.Material, color]);
+  }, [materials.Material, color, ghost]);
 
   const { actions } = useAnimations(animations, group);
   useEffect(() => {
@@ -37,32 +44,32 @@ export function Character({ animation, color, ...props }) {
             geometry={nodes.body.geometry}
             material={mat}
             skeleton={nodes.body.skeleton}
-            castShadow
-            receiveShadow
+            castShadow={!ghost}
+            receiveShadow={!ghost}
           />
           <skinnedMesh
             name="eye"
             geometry={nodes.eye.geometry}
             material={mat}
             skeleton={nodes.eye.skeleton}
-            castShadow
-            receiveShadow
+            castShadow={!ghost}
+            receiveShadow={!ghost}
           />
           <skinnedMesh
             name="hand-"
             geometry={nodes["hand-"].geometry}
             material={mat}
             skeleton={nodes["hand-"].skeleton}
-            castShadow
-            receiveShadow
+            castShadow={!ghost}
+            receiveShadow={!ghost}
           />
           <skinnedMesh
             name="leg"
             geometry={nodes.leg.geometry}
             material={mat}
             skeleton={nodes.leg.skeleton}
-            castShadow
-            receiveShadow
+            castShadow={!ghost}
+            receiveShadow={!ghost}
           />
         </group>
       </group>

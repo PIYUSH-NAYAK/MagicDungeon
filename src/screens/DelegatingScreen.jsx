@@ -17,7 +17,7 @@ const PLAYER_STEPS = [
 ];
 
 export function DelegatingScreen() {
-  const { delegationProgress, walletPublicKey, runDelegation, isHost } = useGame();
+  const { delegationProgress, walletPublicKey, runDelegation, isHost, allDelegated, hostStartGame } = useGame();
 
   const [signing,          setSigning]          = useState(false);
   const [myDone,           setMyDone]           = useState(false);
@@ -158,11 +158,25 @@ export function DelegatingScreen() {
           >
             {signing ? <><Spin size={16} /> Approve in Phantom…</> : "⚡ Sign & Delegate"}
           </button>
+        ) : isHost && allDelegated ? (
+          <button
+            onClick={hostStartGame}
+            style={{
+              width: "100%", padding: ".85rem",
+              background: "linear-gradient(135deg,#f39c12,#e67e22)",
+              border: "none", borderRadius: 99, cursor: "pointer",
+              color: "#fff", fontWeight: 800, fontSize: "1rem",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: ".6rem",
+              animation: "hudPulse .9s ease infinite",
+            }}
+          >
+            🚀 Start Game
+          </button>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: ".75rem", padding: ".5rem 0" }}>
             <span style={{ fontSize: "1.4rem" }}>✅</span>
             <p style={{ color: "#a0ffa0", fontWeight: 700, fontSize: ".95rem" }}>
-              Ready! Waiting for others…
+              {isHost ? "Waiting for other players…" : "Ready! Waiting for host…"}
             </p>
           </div>
         )}
@@ -208,10 +222,18 @@ export function DelegatingScreen() {
       </div>
 
       <p style={{ color: "rgba(255,255,255,.2)", fontSize: ".72rem", textAlign: "center", maxWidth: 320 }}>
-        Countdown starts automatically when all players have delegated
+        {allDelegated
+          ? isHost ? "All players ready — click Start Game!" : "All players ready — waiting for host…"
+          : "Countdown starts when all players have delegated"}
       </p>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes hudPulse {
+          0%,100% { box-shadow: 0 0 0 0 rgba(243,156,18,.4); }
+          50%      { box-shadow: 0 0 0 8px rgba(243,156,18,0); }
+        }
+      `}</style>
     </div>
   );
 }

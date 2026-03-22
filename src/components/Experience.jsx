@@ -8,25 +8,24 @@ import { TaskStation } from "./TaskStation";
 import { useGame } from "../context/GameContext";
 
 const MAP_CONFIGS = {
-  castle_on_hills:         { scale: 3,    position: [-6, -7, 0] },
-  animal_crossing_map:     { scale: 20,   position: [-15, -1, 10] },
-  city_scene_tokyo:        { scale: 0.72, position: [0, -1, -3.5] },
-  de_dust_2_with_real_light: { scale: 0.3, position: [-5, -3, 13] },
-  medieval_fantasy_book:   { scale: 0.4,  position: [-4, 0, -6] },
+  castle_on_hills:           { scale: 3,    position: [-6, -7, 0] },
+  animal_crossing_map:       { scale: 20,   position: [-15, -1, 10] },
+  city_scene_tokyo:          { scale: 0.72, position: [0, -1, -3.5] },
+  de_dust_2_with_real_light: { scale: 0.3,  position: [-5, -3, 13] },
+  medieval_fantasy_book:     { scale: 0.4,  position: [-4, 0, -6] },
 };
 
-// Fixed task station positions in the castle map
 const TASK_POSITIONS = [
   [2, 0.3, 1],
   [-3, 0.3, 3],
   [4, 0.3, -2],
 ];
 
-const Scene = ({ nearbyPlayerId, nearbyDeadId, onNearbyPlayer, onNearbyDead }) => {
+const Scene = ({ onNearbyPlayer, onNearbyDead }) => {
   const shadowCameraRef = useRef();
   const { room, myId } = useGame();
   const map = room?.map || "castle_on_hills";
-  const cfg = MAP_CONFIGS[map];
+  const cfg = MAP_CONFIGS[map] || MAP_CONFIGS.castle_on_hills;
   const players = room?.players ?? {};
 
   return (
@@ -57,26 +56,14 @@ const Scene = ({ nearbyPlayerId, nearbyDeadId, onNearbyPlayer, onNearbyDead }) =
           if (id === myId) return null;
           return <RemoteCharacter key={id} id={id} playerData={players[id]} />;
         })}
-
-        {/* Task Stations */}
         {TASK_POSITIONS.map((pos, i) => (
-          <TaskStation
-            key={i}
-            position={pos}
-            taskIndex={i}
-            onComplete={() => {}}
-          />
+          <TaskStation key={i} position={pos} taskIndex={i} onComplete={() => {}} />
         ))}
       </Physics>
     </>
   );
 };
 
-export const Experience = ({ onNearbyPlayer, onNearbyDead }) => {
-  return (
-    <Scene
-      onNearbyPlayer={onNearbyPlayer}
-      onNearbyDead={onNearbyDead}
-    />
-  );
-};
+export const Experience = ({ onNearbyPlayer, onNearbyDead }) => (
+  <Scene onNearbyPlayer={onNearbyPlayer} onNearbyDead={onNearbyDead} />
+);

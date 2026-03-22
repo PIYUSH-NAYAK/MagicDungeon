@@ -5,17 +5,23 @@ export function MeetingScreen() {
   const {
     room, myId, isAlive,
     meetingInfo, meetingTimer, meetingResult,
-    castVote,
+    castVote, chain,
   } = useGame();
 
   const [myVote, setMyVote] = useState(null);
 
   if (!room) return null;
 
-  const players  = Object.values(room.players);
+  const players      = Object.values(room.players);
   const alivePlayers = players.filter(p => p.alive);
-  const me = room.players[myId];
-  const hasVoted = !!myVote || !!(room.votes?.[myId]);
+  const me           = room.players[myId];
+  const hasVoted     = !!myVote || !!(room.votes?.[myId]);
+
+  // ER-authoritative vote count (how many voted on-chain — not WHO they voted for)
+  const erVoteCount   = chain?.voteState?.voteCount ?? null;
+  const socketVoted   = Object.keys(room.votes || {}).length;
+  // Show ER count if available, fall back to socket tally
+  const confirmedVotes = erVoteCount ?? socketVoted;
 
   const isEmergency = meetingInfo?.type === "emergency";
   const headerText = isEmergency
@@ -109,10 +115,20 @@ export function MeetingScreen() {
         {meetingTimer}s
       </div>
 
-      {/* Discussion note */}
-      <p style={{ color: "rgba(255,255,255,.35)", fontSize: ".85rem", fontStyle: "italic" }}>
-        Discuss, then vote who to eject. Skip if unsure.
-      </p>
+      {/* Vote progress + on-chain badge */}
+      <div style={{ display: "flex", alignItems: "center", gap: ".75rem" }}>
+        <p style={{ color: "rgba(255,255,255,.35)", fontSize: ".85rem", fontStyle: "italic" }}>
+          Discuss, then vote who to eject. Skip if unsure.
+        </p>
+        <span style={{
+          fontSize: ".7rem", padding: ".2rem .65rem", borderRadius: 99,
+          background: erVoteCount !== null ? "rgba(46,204,113,.15)" : "rgba(255,255,255,.06)",
+          color: erVoteCount !== null ? "#2ecc71" : "rgba(255,255,255,.3)",
+          fontWeight: 700, whiteSpace: "nowrap",
+        }}>
+          {erVoteCount !== null ? "⛓" : "○"} {confirmedVotes}/{alivePlayers.length} voted
+        </span>
+      </div>
 
       {/* Player vote list */}
       <div style={{

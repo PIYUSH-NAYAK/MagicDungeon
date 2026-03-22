@@ -14,17 +14,23 @@ const CREWMATE_LINES = [
 ];
 
 export function RoleReveal() {
-  const { myRole, room, myId, dismissRoleReveal } = useGame();
+  const { myRole, room, dismissRoleReveal, chain } = useGame();
   const [visible, setVisible] = useState(false);
   const [countdown, setCountdown] = useState(5);
 
-  const isImpostor = myRole === "impostor";
+  // ER role is authoritative; fall back to socket-assigned role while TX confirms
+  const resolvedRole = chain?.erRole ?? myRole;
+  const isImpostor   = resolvedRole === "impostor";
 
-  // Get fellow impostors
-  const fellows = room
-    ? Object.values(room.players).filter(
-        p => p.id !== myId && p.role === "impostor"
-      )
+  // Get fellow impostors from ER (blockchain) — server roles are redacted from room.players
+  const fellows = isImpostor && chain?.allPlayerStates
+    ? Object.entries(chain.allPlayerStates)
+        .filter(([pk, ps]) => ps?.role?.impostor !== undefined && pk !== chain?.publicKey?.toBase58())
+        .map(([pk]) => {
+          const p = room ? Object.values(room.players).find(pl => pl.walletPubkey === pk) : null;
+          return p ? { id: p.id, name: p.name, color: p.color } : null;
+        })
+        .filter(Boolean)
     : [];
 
   const line = isImpostor

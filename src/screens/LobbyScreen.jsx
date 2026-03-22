@@ -121,10 +121,10 @@ export function LobbyScreen() {
         }}>
           <span title="Wallet">🔑 {walletShort}</span>
           <span style={{ opacity: .4 }}>│</span>
-          <span style={{ color: onChainCreated ? "#2ecc71" : "rgba(255,255,255,.35)" }}>
+          <span style={{ color: onChainCreated ? "#2ecc71" : chainGameId ? "#f39c12" : "rgba(255,255,255,.35)" }}>
             {onChainCreated
               ? `✓ on-chain #${chainGameId?.slice(-6) ?? "—"}`
-              : chainGameId ? `⏳ confirming #${chainGameId.slice(-6)}…` : "○ not created"}
+              : chainGameId ? "⏳ joining chain…" : "○ not connected"}
           </span>
           <span style={{ opacity: .4 }}>│</span>
           <span style={{ color: teeActive ? "#2ecc71" : "rgba(255,255,255,.3)" }}>

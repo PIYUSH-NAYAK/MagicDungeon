@@ -20,11 +20,27 @@ export function ResultsScreen() {
     }
   }
 
-  const players  = Object.values(room.players);
-  const impostors = players.filter(p => p.role === "impostor");
-  const crewmates = players.filter(p => p.role === "crewmate");
+  const players = Object.values(room.players);
 
-  const isCrewmateWin = winner === "crewmates";
+  // Resolve each player's role: prefer ER allPlayerStates (revealed post-game) → socket room role
+  // Anchor encodes Role::Impostor as { impostor:{} }, Role::Crewmate as { crewmate:{} }
+  function resolveRole(p) {
+    const erPs = chain?.allPlayerStates?.[p.walletPubkey];
+    if (erPs?.role?.impostor !== undefined) return "impostor";
+    if (erPs?.role?.crewmate !== undefined) return "crewmate";
+    return p.role; // socket fallback
+  }
+
+  const playersWithRole = players.map(p => ({ ...p, resolvedRole: resolveRole(p) }));
+  const impostors = playersWithRole.filter(p => p.resolvedRole === "impostor");
+
+  // ER result is authoritative; fall back to socket winner string
+  const erResult = chain?.gameState?.result;
+  const isCrewmateWin = erResult?.crewmatesWin !== undefined
+    ? true
+    : erResult?.impostorsWin !== undefined
+    ? false
+    : winner === "crewmates";
 
   return (
     <div style={{
@@ -75,6 +91,9 @@ export function ResultsScreen() {
             }}>
               <div style={{ width: 12, height: 12, borderRadius: "50%", background: p.color }} />
               <span style={{ fontWeight: 700, fontSize: ".9rem" }}>{p.name}</span>
+              {chain?.allPlayerStates?.[p.walletPubkey] && (
+                <span style={{ fontSize: ".65rem", color: "#2ecc71", opacity: .7 }}>⛓</span>
+              )}
             </div>
           ))}
         </div>
@@ -86,7 +105,7 @@ export function ResultsScreen() {
           All Players
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: ".5rem" }}>
-          {players.map(p => (
+          {playersWithRole.map(p => (
             <div key={p.id} style={{
               display: "flex", alignItems: "center", gap: ".8rem",
               background: "rgba(255,255,255,.04)", borderRadius: 10,
@@ -97,11 +116,11 @@ export function ResultsScreen() {
               <span style={{ flex: 1, fontWeight: 600 }}>{p.name}</span>
               <span style={{
                 fontSize: ".75rem", padding: ".2rem .6rem", borderRadius: 99,
-                background: p.role === "impostor" ? "rgba(231,76,60,.2)" : "rgba(52,152,219,.15)",
-                color: p.role === "impostor" ? "#e74c3c" : "#5dade2",
+                background: p.resolvedRole === "impostor" ? "rgba(231,76,60,.2)" : "rgba(52,152,219,.15)",
+                color: p.resolvedRole === "impostor" ? "#e74c3c" : "#5dade2",
                 fontWeight: 700,
               }}>
-                {p.role === "impostor" ? "🔪 Impostor" : "🛡️ Crewmate"}
+                {p.resolvedRole === "impostor" ? "🔪 Impostor" : "🛡️ Crewmate"}
               </span>
               {!p.alive && <span style={{ fontSize: ".75rem", color: "rgba(255,255,255,.35)" }}>💀</span>}
             </div>
