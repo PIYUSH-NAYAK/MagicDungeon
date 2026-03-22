@@ -4,8 +4,11 @@ import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import {
   permissionPdaFromAccount,
-  groupPdaFromId,
-  createCreateGroupInstruction,
+  delegationRecordPdaFromDelegatedAccount,
+  delegationMetadataPdaFromDelegatedAccount,
+  delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
+  DELEGATION_PROGRAM_ID,
+  PERMISSION_PROGRAM_ID,
   getAuthToken,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import BN from "bn.js";
@@ -213,14 +216,7 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     subIds.current = [id1, id2];
   }, [gamePda, myPda, publicKey, syncAllState]);
 
-  const getOrCreateGroupIx = useCallback(async (groupPda, groupId) => {
-    const info = await connection.getAccountInfo(groupPda);
-    if (info) return null;
-    return createCreateGroupInstruction(
-      { group: groupPda, payer: publicKey },
-      { id: groupId, members: [] }
-    );
-  }, [connection, publicKey]);
+  // getOrCreateGroupIx removed — SDK's groupPdaFromId doesn't exist in this version
 
   // ─── Commands ────────────────────────────────────────────────────────────
   const commands = {
@@ -262,18 +258,18 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       if (!programRef.current || !publicKey) return;
       setIsLoading(true);
       try {
-        const gameGroup = groupPdaFromId(gamePda);
-        const tx = new Transaction();
-        const groupIx = await getOrCreateGroupIx(gameGroup, gamePda);
-        if (groupIx) tx.add(groupIx);
-        const ix = await programRef.current.methods.createPermission({ game: { gameId: gid } })
-          .accountsPartial({ payer: publicKey, permissionedAccount: gamePda, permission: permissionPdaFromAccount(gamePda), group: gameGroup, systemProgram: SystemProgram.programId })
+        const permPda = permissionPdaFromAccount(gamePda);
+        const ix = await programRef.current.methods
+          .createPermission({ game: { gameId: gid } })
+          .accounts({
+            permissionedAccount: gamePda,
+            permission:          permPda,
+            payer:               publicKey,
+            permissionProgram:   PERMISSION_PROGRAM_ID,
+            systemProgram:       SystemProgram.programId,
+          })
           .instruction();
-        tx.add(ix);
-        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-        tx.feePayer = publicKey;
-        const sig = await sendTransaction(tx, connection);
-        await connection.confirmTransaction(sig, "confirmed");
+        await sendBase(ix, "Create game permission");
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
     },
@@ -282,10 +278,24 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       if (!programRef.current || !publicKey) return;
       setIsLoading(true);
       try {
-        const ix = await programRef.current.methods.delegatePda({ game: { gameId: gid } })
-          .accounts({ pda: gamePda, payer: publicKey, validator: ER_VALIDATOR })
+        const bufferPda   = delegateBufferPdaFromDelegatedAccountAndOwnerProgram(gamePda, PROGRAM_ID);
+        const recordPda   = delegationRecordPdaFromDelegatedAccount(gamePda);
+        const metaPda     = delegationMetadataPdaFromDelegatedAccount(gamePda);
+        const ix = await programRef.current.methods
+          .delegatePda({ game: { gameId: gid } })
+          .accounts({
+            bufferPda:             bufferPda,
+            delegationRecordPda:   recordPda,
+            delegationMetadataPda: metaPda,
+            pda:                   gamePda,
+            payer:                 publicKey,
+            validator:             ER_VALIDATOR,
+            ownerProgram:          PROGRAM_ID,
+            delegationProgram:     DELEGATION_PROGRAM_ID,
+            systemProgram:         SystemProgram.programId,
+          })
           .instruction();
-        await sendBase(ix);
+        await sendBase(ix, "Delegate game to ER");
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
     },
@@ -294,18 +304,18 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       if (!programRef.current || !publicKey || !myPda) return;
       setIsLoading(true);
       try {
-        const playerGroup = groupPdaFromId(publicKey);
-        const tx = new Transaction();
-        const groupIx = await getOrCreateGroupIx(playerGroup, publicKey);
-        if (groupIx) tx.add(groupIx);
-        const ix = await programRef.current.methods.createPermission({ player: { gameId: gid, player: publicKey } })
-          .accountsPartial({ payer: publicKey, permissionedAccount: myPda, permission: permissionPdaFromAccount(myPda), group: playerGroup, systemProgram: SystemProgram.programId })
+        const permPda = permissionPdaFromAccount(myPda);
+        const ix = await programRef.current.methods
+          .createPermission({ player: { gameId: gid, player: publicKey } })
+          .accounts({
+            permissionedAccount: myPda,
+            permission:          permPda,
+            payer:               publicKey,
+            permissionProgram:   PERMISSION_PROGRAM_ID,
+            systemProgram:       SystemProgram.programId,
+          })
           .instruction();
-        tx.add(ix);
-        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-        tx.feePayer = publicKey;
-        const sig = await sendTransaction(tx, connection);
-        await connection.confirmTransaction(sig, "confirmed");
+        await sendBase(ix, "Create player permission");
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
     },
@@ -314,10 +324,24 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       if (!programRef.current || !publicKey || !myPda) return;
       setIsLoading(true);
       try {
-        const ix = await programRef.current.methods.delegatePda({ player: { gameId: gid, player: publicKey } })
-          .accounts({ pda: myPda, payer: publicKey, validator: ER_VALIDATOR })
+        const bufferPda = delegateBufferPdaFromDelegatedAccountAndOwnerProgram(myPda, PROGRAM_ID);
+        const recordPda = delegationRecordPdaFromDelegatedAccount(myPda);
+        const metaPda   = delegationMetadataPdaFromDelegatedAccount(myPda);
+        const ix = await programRef.current.methods
+          .delegatePda({ player: { gameId: gid, player: publicKey } })
+          .accounts({
+            bufferPda:             bufferPda,
+            delegationRecordPda:   recordPda,
+            delegationMetadataPda: metaPda,
+            pda:                   myPda,
+            payer:                 publicKey,
+            validator:             ER_VALIDATOR,
+            ownerProgram:          PROGRAM_ID,
+            delegationProgram:     DELEGATION_PROGRAM_ID,
+            systemProgram:         SystemProgram.programId,
+          })
           .instruction();
-        await sendBase(ix);
+        await sendBase(ix, "Delegate player to ER");
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
     },
@@ -421,14 +445,14 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       setIsLoading(true);
       try {
         const ix = await programERRef.current.methods.finalizeGame()
-          .accountsPartial({
-            game: gamePda,
-            permissionGame: permissionPdaFromAccount(gamePda),
-            group: groupPdaFromId(gamePda),
-            payer: publicKey,
+          .accounts({
+            game:              gamePda,
+            permissionGame:    permissionPdaFromAccount(gamePda),
+            payer:             publicKey,
+            permissionProgram: PERMISSION_PROGRAM_ID,
           })
           .instruction();
-        await sendER(ix);
+        await sendER(ix, "Finalize game");
         setIsFinalized(true);
       } catch (e) { setError(e.message); throw e; }
       finally { setIsLoading(false); }
