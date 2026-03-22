@@ -20,6 +20,15 @@ export const TEE_HTTP     = "https://tee.magicblock.app";
 export const TEE_WSS      = "wss://tee.magicblock.app";
 export const PROGRAM_ID   = new PublicKey("F3jhJFLdcyzN9ssRuzHVuqgaMcUMyZF1PmvVfu8Hk2C6");
 
+// groupPdaFromId was removed from SDK; derive manually using same pattern as PERMISSION_SEED
+const GROUP_SEED = Buffer.from("group:");
+function groupPdaFromId(id) {
+  return PublicKey.findProgramAddressSync(
+    [GROUP_SEED, id.toBuffer()],
+    PERMISSION_PROGRAM_ID,
+  )[0];
+}
+
 // ─── PDA helpers ─────────────────────────────────────────────────────────────
 export function getGamePda(gid) {
   return PublicKey.findProgramAddressSync(
@@ -258,12 +267,14 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       if (!programRef.current || !publicKey) return;
       setIsLoading(true);
       try {
-        const permPda = permissionPdaFromAccount(gamePda);
+        const permPda  = permissionPdaFromAccount(gamePda);
+        const groupPda = groupPdaFromId(gamePda);
         const ix = await programRef.current.methods
           .createPermission({ game: { gameId: gid } })
           .accounts({
             permissionedAccount: gamePda,
             permission:          permPda,
+            group:               groupPda,
             payer:               publicKey,
             permissionProgram:   PERMISSION_PROGRAM_ID,
             systemProgram:       SystemProgram.programId,
@@ -304,12 +315,14 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
       if (!programRef.current || !publicKey || !myPda) return;
       setIsLoading(true);
       try {
-        const permPda = permissionPdaFromAccount(myPda);
+        const permPda  = permissionPdaFromAccount(myPda);
+        const groupPda = groupPdaFromId(publicKey);
         const ix = await programRef.current.methods
           .createPermission({ player: { gameId: gid, player: publicKey } })
           .accounts({
             permissionedAccount: myPda,
             permission:          permPda,
+            group:               groupPda,
             payer:               publicKey,
             permissionProgram:   PERMISSION_PROGRAM_ID,
             systemProgram:       SystemProgram.programId,
