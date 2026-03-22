@@ -114,8 +114,18 @@ export function useAmongUsProgram(gameIdStr, { onTxLog } = {}) {
     onTxLog?.({ id, label, status: "pending", isER: false });
     try {
       const tx = new Transaction().add(ix);
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
+
+      // Simulate first — surfaces real program error logs before Phantom shows generic error
+      const sim = await connection.simulateTransaction(tx);
+      if (sim.value.err) {
+        console.error(`[sim] ${label} FAILED:`, sim.value.err);
+        console.error(`[sim] logs:`, sim.value.logs?.join("\n"));
+        throw new Error(sim.value.logs?.slice(-3).join(" | ") || JSON.stringify(sim.value.err));
+      }
+
       const sig = await sendTransaction(tx, connection);
       await connection.confirmTransaction(sig, "confirmed");
       onTxLog?.({ id, label, status: "confirmed", sig, isER: false });
