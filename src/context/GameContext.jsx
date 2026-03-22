@@ -216,35 +216,33 @@ export function GameProvider({ children }) {
     chain.subscribe();
   }, [chain.teeToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Delegating phase: EVERY player signs their own delegation ────────────────
-  // This runs for all players (including host) when server puts room in 'delegating'
-  useEffect(() => {
-    if (phase !== "delegating" || !chainGameId || !room) return;
+  // ── runDelegation: called from DelegatingScreen button click ──────────────
+  // MUST be user-gesture initiated — Phantom blocks auto-fired useEffect transactions
+  async function runDelegation() {
     const r = roomRef.current;
-    if (!r) return;
-
-    (async () => {
-      try {
-        // Host also delegates the shared GameState
-        if (myId === r.hostId) {
-          await chain.commands.createPermGame();
-          await chain.commands.delegateGame();
-        }
-        // Every player delegates their own PlayerState
-        await chain.commands.createPermPlayer();
-        await chain.commands.delegatePlayer();
-        // Authenticate with TEE
-        await chain.commands.authTee();
-        // Signal server: this player is ready
-        sock()?.emit("playerDelegated", { code: r.code });
-        console.log("[chain] delegation complete ✓");
-      } catch (e) {
-        console.warn("[chain] delegation failed:", e.message);
-        // Still signal so game isn't blocked if chain is unavailable
-        sock()?.emit("playerDelegated", { code: r.code });
+    if (!r || phase !== "delegating") return;
+    try {
+      // Host also delegates the shared GameState
+      if (myId === r.hostId) {
+        await chain.commands.createPermGame();
+        await chain.commands.delegateGame();
       }
-    })();
-  }, [phase, chainGameId]); // eslint-disable-line react-hooks/exhaustive-deps
+      // Every player delegates their own PlayerState
+      await chain.commands.createPermPlayer();
+      await chain.commands.delegatePlayer();
+      // Authenticate with TEE
+      await chain.commands.authTee();
+      // Signal server: this player is ready
+      sock()?.emit("playerDelegated", { code: r.code });
+      console.log("[chain] delegation complete ✓");
+    } catch (e) {
+      console.error("[chain] delegation error:", e);
+      setError(`Chain error: ${e.message}. Proceeding anyway.`);
+      setTimeout(() => setError(null), 5000);
+      // Still signal so one player's error doesn't block everyone
+      sock()?.emit("playerDelegated", { code: r.code });
+    }
+  }
 
   // ── Helper ─────────────────────────────────────────────────────────────────
   const sock = () => socketRef.current;
@@ -411,10 +409,11 @@ export function GameProvider({ children }) {
       leaveRoom, backToLobby, goToMenu, dismissRoleReveal,
       // ── On-chain (Solana / MagicBlock ER) ──
       chain,          // the full useAmongUsProgram instance
-      chainGameId,    // current on-chain game_id (string)
+      chainGameId,
       walletPublicKey: publicKey,
-      txLogs,              // feeds ChainLog
-      delegationProgress,  // feeds DelegatingScreen
+      txLogs,
+      delegationProgress,
+      runDelegation,   // call from button click — triggers Phantom for delegation txs
     }}>
       {children}
     </GameContext.Provider>
