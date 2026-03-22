@@ -10,15 +10,23 @@
     "server": "nodemon server.js"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@magicblock-labs/ephemeral-rollups-sdk": "^0.10.0",
     "@react-three/drei": "9.75.0",
     "@react-three/fiber": "8.13.3",
     "@react-three/rapier": "^1.4.0",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-react-ui": "^0.9.39",
+    "@solana/web3.js": "^1.98.4",
     "@types/three": "0.152.1",
+    "bn.js": "^5.2.3",
     "leva": "^0.9.35",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
+    "sonner": "^2.0.7",
     "three": "0.153.0"
   },
   "devDependencies": {

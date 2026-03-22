@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "../context/GameContext";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
 const PARTICLES = Array.from({ length: 18 }, (_, i) => ({
   id: i,
@@ -11,9 +13,10 @@ const PARTICLES = Array.from({ length: 18 }, (_, i) => ({
 
 export function SplashScreen() {
   const { setPhaseState } = useGame();
+  const { publicKey }     = useWallet();
   const [visible, setVisible] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
-  const advancedRef = useRef(false); // guard against multiple triggers
+  const advancedRef = useRef(false);
 
   useEffect(() => {
     const t1 = setTimeout(() => setVisible(true), 100);
@@ -30,7 +33,8 @@ export function SplashScreen() {
   }, []);
 
   function advance() {
-    if (advancedRef.current) return; // prevent double-fire
+    if (!publicKey) return;        // must have wallet connected
+    if (advancedRef.current) return;
     advancedRef.current = true;
     setFadeOut(true);
     setTimeout(() => setPhaseState("menu"), 500);

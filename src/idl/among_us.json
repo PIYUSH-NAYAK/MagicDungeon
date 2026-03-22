@@ -1,0 +1,1568 @@
+{
+  "address": "F3jhJFLdcyzN9ssRuzHVuqgaMcUMyZF1PmvVfu8Hk2C6",
+  "metadata": {
+    "name": "among_us",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Among Us on-chain game with private ephemeral rollups (TEE)"
+  },
+  "instructions": [
+    {
+      "name": "call_meeting",
+      "docs": [
+        "Any alive player calls an emergency meeting. Runs in TEE.",
+        "Creates a fresh VoteState for this voting round."
+      ],
+      "discriminator": [
+        227,
+        239,
+        168,
+        73,
+        177,
+        220,
+        20,
+        83
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "caller_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_id"
+              },
+              {
+                "kind": "account",
+                "path": "caller"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote_state",
+          "writable": true
+        },
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "_game_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "complete_task",
+      "docs": [
+        "Crewmate completes a task. Runs in private TEE.",
+        "TEE validates the player's hidden role."
+      ],
+      "discriminator": [
+        109,
+        167,
+        192,
+        41,
+        129,
+        108,
+        220,
+        196
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_game",
+      "docs": [
+        "Host creates the lobby and joins as the first player.",
+        "Called on the base layer before any delegation."
+      ],
+      "discriminator": [
+        124,
+        69,
+        75,
+        66,
+        184,
+        220,
+        72,
+        206
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_id"
+              },
+              {
+                "kind": "account",
+                "path": "host"
+              }
+            ]
+          }
+        },
+        {
+          "name": "host",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "game_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_permission",
+      "docs": [
+        "Creates a TEE read-permission for a PDA.",
+        "",
+        "Key privacy rule: for PlayerState PDAs, only grant the",
+        "`AUTHORITY_FLAG` to the owning player — not to others.",
+        "This makes each player's role invisible to opponents in the",
+        "private ER, even though the TEE validator can see everything."
+      ],
+      "discriminator": [
+        190,
+        182,
+        26,
+        164,
+        156,
+        221,
+        8,
+        0
+      ],
+      "accounts": [
+        {
+          "name": "permissioned_account"
+        },
+        {
+          "name": "permission",
+          "writable": true
+        },
+        {
+          "name": "group"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "permission_program",
+          "address": "BTWAqWNBmF2TboMh3fxMJfgR16xGHYD7Kgr2dPwbRPBi"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_type",
+          "type": {
+            "defined": {
+              "name": "AccountType"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "delegate_pda",
+      "docs": [
+        "Delegates any PDA to the private TEE ER validator.",
+        "Call once per PDA (game, each player, each vote round)."
+      ],
+      "discriminator": [
+        248,
+        217,
+        193,
+        46,
+        124,
+        191,
+        64,
+        135
+      ],
+      "accounts": [
+        {
+          "name": "buffer_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                208,
+                183,
+                13,
+                193,
+                83,
+                178,
+                105,
+                158,
+                50,
+                53,
+                128,
+                69,
+                66,
+                225,
+                17,
+                23,
+                230,
+                233,
+                16,
+                130,
+                66,
+                167,
+                119,
+                17,
+                136,
+                221,
+                234,
+                230,
+                75,
+                103,
+                174,
+                191
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "pda",
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "F3jhJFLdcyzN9ssRuzHVuqgaMcUMyZF1PmvVfu8Hk2C6"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_type",
+          "type": {
+            "defined": {
+              "name": "AccountType"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "finalize_game",
+      "docs": [
+        "Commits the final GameState to Solana base layer.",
+        "Removes permissions and undelegates GameState.",
+        "Called in TEE once game.phase == Ended."
+      ],
+      "discriminator": [
+        203,
+        227,
+        3,
+        167,
+        186,
+        102,
+        76,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "permission_game",
+          "writable": true
+        },
+        {
+          "name": "group"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "permission_program",
+          "address": "BTWAqWNBmF2TboMh3fxMJfgR16xGHYD7Kgr2dPwbRPBi"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "join_game",
+      "docs": [
+        "Any player joins the lobby before the game starts.",
+        "Called on the base layer."
+      ],
+      "discriminator": [
+        107,
+        112,
+        18,
+        38,
+        56,
+        173,
+        60,
+        128
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_id"
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "game_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "kill_player",
+      "docs": [
+        "Impostor kills a crewmate. Runs in the private TEE.",
+        "TEE validates the killer's hidden role + enforces cooldown.",
+        "Victims are always crewmates (impostors cannot kill each other)."
+      ],
+      "discriminator": [
+        217,
+        66,
+        204,
+        33,
+        32,
+        249,
+        117,
+        52
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "killer_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              },
+              {
+                "kind": "account",
+                "path": "killer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "victim_state",
+          "docs": [
+            "The victim's PlayerState is needed to validate role + update liveness.",
+            "Only the TEE can see this account in full — the victim's role is hidden",
+            "from all other players via the permission system."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              },
+              {
+                "kind": "account",
+                "path": "victim_state.player",
+                "account": "PlayerState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "killer",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer"
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "resolve_vote",
+      "docs": [
+        "TEE tallies votes and eliminates the most-voted player.",
+        "`ejected_state` MUST be the eliminated player's PlayerState.",
+        "The TEE pre-simulates the tally and supplies this account.",
+        "If it's a tie or all-skip, pass ejected_state = None."
+      ],
+      "discriminator": [
+        190,
+        135,
+        168,
+        149,
+        112,
+        96,
+        20,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote_state",
+          "writable": true
+        },
+        {
+          "name": "ejected_state",
+          "docs": [
+            "The ejected player's private state. TEE pre-simulates the tally,",
+            "then supplies the correct account here so the contract can update",
+            "alive_impostors / alive_crewmates. Pass None when no one is ejected."
+          ],
+          "optional": true
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "start_game",
+      "docs": [
+        "Host starts the game. Runs inside the private TEE.",
+        "Transitions phase to Playing, sets task totals, and assigns roles automatically."
+      ],
+      "discriminator": [
+        249,
+        47,
+        252,
+        172,
+        184,
+        162,
+        245,
+        14
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "host",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "submit_vote",
+      "docs": [
+        "Alive player casts their vote. Runs in private TEE.",
+        "Pass `target = None` to skip."
+      ],
+      "discriminator": [
+        115,
+        242,
+        100,
+        0,
+        49,
+        178,
+        242,
+        133
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote_state",
+          "writable": true
+        },
+        {
+          "name": "voter_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  109,
+                  111,
+                  110,
+                  103,
+                  95,
+                  117,
+                  115,
+                  95,
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "GameState"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "voter",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "target",
+          "type": {
+            "option": "pubkey"
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GameState",
+      "discriminator": [
+        144,
+        94,
+        208,
+        172,
+        248,
+        99,
+        134,
+        120
+      ]
+    },
+    {
+      "name": "PlayerState",
+      "discriminator": [
+        56,
+        3,
+        60,
+        86,
+        174,
+        16,
+        244,
+        195
+      ]
+    },
+    {
+      "name": "VoteState",
+      "discriminator": [
+        100,
+        177,
+        100,
+        106,
+        158,
+        188,
+        195,
+        137
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "GameAlreadyStarted",
+      "msg": "Game has already started."
+    },
+    {
+      "code": 6001,
+      "name": "LobbyFull",
+      "msg": "Lobby is full (max 10 players)."
+    },
+    {
+      "code": 6002,
+      "name": "AlreadyInGame",
+      "msg": "You are already in this game."
+    },
+    {
+      "code": 6003,
+      "name": "NotEnoughPlayers",
+      "msg": "Not enough players to start (min 4)."
+    },
+    {
+      "code": 6004,
+      "name": "NotHost",
+      "msg": "Only the host can perform this action."
+    },
+    {
+      "code": 6005,
+      "name": "InvalidPhase",
+      "msg": "Invalid game phase for this action."
+    },
+    {
+      "code": 6006,
+      "name": "PlayerDead",
+      "msg": "This player is dead."
+    },
+    {
+      "code": 6007,
+      "name": "InvalidRole",
+      "msg": "Invalid role for this action."
+    },
+    {
+      "code": 6008,
+      "name": "KillOnCooldown",
+      "msg": "Kill is on cooldown."
+    },
+    {
+      "code": 6009,
+      "name": "Unauthorized",
+      "msg": "Unauthorized signer."
+    },
+    {
+      "code": 6010,
+      "name": "RoleAlreadyAssigned",
+      "msg": "Role has already been assigned."
+    },
+    {
+      "code": 6011,
+      "name": "VoteAlreadyResolved",
+      "msg": "Vote has already been resolved."
+    },
+    {
+      "code": 6012,
+      "name": "AlreadyVoted",
+      "msg": "You have already voted this session."
+    },
+    {
+      "code": 6013,
+      "name": "InvalidTarget",
+      "msg": "Invalid vote target or ejected player account mismatch."
+    },
+    {
+      "code": 6014,
+      "name": "MissingPlayerAccounts",
+      "msg": "Missing or incorrect number of player accounts provided."
+    },
+    {
+      "code": 6015,
+      "name": "MissingEjectedState",
+      "msg": "Missing ejected state account data."
+    },
+    {
+      "code": 6016,
+      "name": "DeadPlayerCannotAct",
+      "msg": "Dead players cannot perform this action."
+    },
+    {
+      "code": 6017,
+      "name": "TooManyTasks",
+      "msg": "You have completed all your tasks."
+    },
+    {
+      "code": 6018,
+      "name": "TooManyMeetings",
+      "msg": "You have reached the maximum number of emergency meetings."
+    },
+    {
+      "code": 6019,
+      "name": "GameNotOver",
+      "msg": "The game is not over yet."
+    }
+  ],
+  "types": [
+    {
+      "name": "AccountType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Game",
+            "fields": [
+              {
+                "name": "game_id",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "Player",
+            "fields": [
+              {
+                "name": "game_id",
+                "type": "u64"
+              },
+              {
+                "name": "player",
+                "type": "pubkey"
+              }
+            ]
+          },
+          {
+            "name": "Vote",
+            "fields": [
+              {
+                "name": "game_id",
+                "type": "u64"
+              },
+              {
+                "name": "session",
+                "type": "u8"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "GamePhase",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Lobby"
+          },
+          {
+            "name": "Playing"
+          },
+          {
+            "name": "Meeting"
+          },
+          {
+            "name": "Ended"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameResult",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "None"
+          },
+          {
+            "name": "CrewmatesWin"
+          },
+          {
+            "name": "ImpostorsWin"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameState",
+      "docs": [
+        "Public game state — visible to everyone on Solana.",
+        "Tracks player list, phase, and aggregate counters.",
+        "Individual roles are NOT stored here."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_id",
+            "type": "u64"
+          },
+          {
+            "name": "host",
+            "type": "pubkey"
+          },
+          {
+            "name": "player_count",
+            "type": "u8"
+          },
+          {
+            "name": "players",
+            "type": {
+              "array": [
+                "pubkey",
+                10
+              ]
+            }
+          },
+          {
+            "name": "alive",
+            "type": {
+              "array": [
+                "bool",
+                10
+              ]
+            }
+          },
+          {
+            "name": "phase",
+            "type": {
+              "defined": {
+                "name": "GamePhase"
+              }
+            }
+          },
+          {
+            "name": "impostor_count",
+            "type": "u8"
+          },
+          {
+            "name": "alive_impostors",
+            "type": "u8"
+          },
+          {
+            "name": "alive_crewmates",
+            "type": "u8"
+          },
+          {
+            "name": "tasks_completed",
+            "type": "u8"
+          },
+          {
+            "name": "total_tasks",
+            "type": "u8"
+          },
+          {
+            "name": "result",
+            "type": {
+              "defined": {
+                "name": "GameResult"
+              }
+            }
+          },
+          {
+            "name": "vote_session",
+            "type": "u8"
+          },
+          {
+            "name": "meeting_caller",
+            "type": {
+              "option": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayerState",
+      "docs": [
+        "Private player state — delegated to the TEE.",
+        "Each PDA is permissioned so ONLY the owning player can read it.",
+        "The TEE validator sees all; no other player sees another's role."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_id",
+            "type": "u64"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "role",
+            "type": {
+              "defined": {
+                "name": "Role"
+              }
+            }
+          },
+          {
+            "name": "is_alive",
+            "type": "bool"
+          },
+          {
+            "name": "tasks_done",
+            "type": "u8"
+          },
+          {
+            "name": "kill_cooldown",
+            "type": "i64"
+          },
+          {
+            "name": "meetings_called",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Role",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Unassigned"
+          },
+          {
+            "name": "Crewmate"
+          },
+          {
+            "name": "Impostor"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "target",
+            "type": {
+              "option": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteState",
+      "docs": [
+        "Vote state for one meeting round."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_id",
+            "type": "u64"
+          },
+          {
+            "name": "session",
+            "type": "u8"
+          },
+          {
+            "name": "votes",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "VoteEntry"
+                  }
+                },
+                10
+              ]
+            }
+          },
+          {
+            "name": "vote_count",
+            "type": "u8"
+          },
+          {
+            "name": "eliminated",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "resolved",
+            "type": "bool"
+          }
+        ]
+      }
+    }
+  ]
+}

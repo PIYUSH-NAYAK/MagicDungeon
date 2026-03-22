@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useAmongUsProgram } from "../hooks/useAmongUsProgram";
 
 const GameContext = createContext(null);
 
@@ -26,6 +28,11 @@ export function GameProvider({ children }) {
   const [meetingTimer, setMeetingTimer] = useState(60);
   const [meetingResult, setMeetingResult] = useState(null);
   const [winner, setWinner]             = useState(null);
+  const [chainGameId, setChainGameId]   = useState(null); // on-chain game_id (u64 as string)
+
+  const { publicKey } = useWallet();
+  // On-chain program hook (only active once chainGameId is set)
+  const chain = useAmongUsProgram(chainGameId || "0");
 
   const socketRef = useRef(null);
   const roomRef   = useRef(null);
@@ -165,15 +172,23 @@ export function GameProvider({ children }) {
 
   // ── Actions ────────────────────────────────────────────────────────────────
   function createRoom() {
-    sock()?.emit("createRoom", { name: myPlayer.name || "Player", color: myPlayer.color });
+    const walletPubkey = publicKey?.toBase58() || null;
+    sock()?.emit("createRoom", { name: myPlayer.name || "Player", color: myPlayer.color, walletPubkey });
+    // Generate a unique game_id from timestamp for the on-chain contract
+    const gameId = String(Date.now());
+    setChainGameId(gameId);
   }
 
   function joinRoom(code) {
+    const walletPubkey = publicKey?.toBase58() || null;
     sock()?.emit("joinRoom", {
       code: code.toUpperCase(),
       name: myPlayer.name || "Player",
       color: myPlayer.color,
+      walletPubkey,
     });
+    // Use the room code as the seed for the game_id (host's timestamp)
+    // Will be overwritten when roomJoined fires with the real room data
   }
 
   function confirmCharacter(name, color) {
@@ -295,6 +310,10 @@ export function GameProvider({ children }) {
       killPlayer, reportBody, callEmergencyMeeting,
       castVote, completeTask,
       leaveRoom, backToLobby, goToMenu, dismissRoleReveal,
+      // ── On-chain (Solana / MagicBlock ER) ──
+      chain,          // the full useAmongUsProgram instance
+      chainGameId,    // current on-chain game_id (string)
+      walletPublicKey: publicKey,  // caller's wallet pubkey
     }}>
       {children}
     </GameContext.Provider>

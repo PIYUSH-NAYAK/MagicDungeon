@@ -3,6 +3,7 @@ import { KeyboardControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { GameProvider, useGame } from "./context/GameContext";
 import { HUD } from "./components/HUD";
+import { WalletProvider } from "./providers/WalletProvider";
 import { SplashScreen } from "./screens/SplashScreen";
 import { MainMenu } from "./screens/MainMenu";
 import { LobbyScreen } from "./screens/LobbyScreen";
@@ -13,6 +14,7 @@ import { RoleReveal } from "./screens/RoleReveal";
 import { MeetingScreen } from "./screens/MeetingScreen";
 import { ResultsScreen } from "./screens/ResultsScreen";
 import { Experience } from "./components/Experience";
+import { Toaster } from "sonner";
 
 const keyboardMap = [
   { name: "forward",  keys: ["ArrowUp",    "KeyW"] },
@@ -72,9 +74,12 @@ function GameRouter() {
 
 function App() {
   return (
-    <GameProvider>
-      <GameRouter />
-    </GameProvider>
+    <WalletProvider>
+      <Toaster position="bottom-left" richColors />
+      <GameProvider>
+        <GameRouter />
+      </GameProvider>
+    </WalletProvider>
   );
 }
 

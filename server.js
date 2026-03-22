@@ -95,7 +95,7 @@ io.on("connection", (socket) => {
   console.log("Player connected:", socket.id);
 
   // ── Create room ──────────────────────────────────────────────────────────
-  socket.on("createRoom", ({ name, color }) => {
+  socket.on("createRoom", ({ name, color, walletPubkey }) => {
     let code;
     do { code = generateCode(); } while (rooms[code]);
 
@@ -113,6 +113,7 @@ io.on("connection", (socket) => {
       players: {
         [socket.id]: {
           id: socket.id,
+          walletPubkey: walletPubkey || null,
           name: name || "Player",
           color: color || "#e74c3c",
           ready: false,
@@ -133,7 +134,7 @@ io.on("connection", (socket) => {
   });
 
   // ── Join room ─────────────────────────────────────────────────────────────
-  socket.on("joinRoom", ({ code, name, color }) => {
+  socket.on("joinRoom", ({ code, name, color, walletPubkey }) => {
     const room = rooms[code];
     if (!room) { socket.emit("roomError", { message: "Room not found." }); return; }
     if (room.phase !== "lobby" && room.phase !== "character_select") {
@@ -146,6 +147,7 @@ io.on("connection", (socket) => {
 
     room.players[socket.id] = {
       id: socket.id,
+      walletPubkey: walletPubkey || null,
       name: name || "Player",
       color: color || "#3498db",
       ready: false,
