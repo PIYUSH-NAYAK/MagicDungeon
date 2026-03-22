@@ -3,12 +3,10 @@ import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import {
-  permissionPdaFromAccount,
   delegationRecordPdaFromDelegatedAccount,
   delegationMetadataPdaFromDelegatedAccount,
   delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
   DELEGATION_PROGRAM_ID,
-  PERMISSION_PROGRAM_ID,
   getAuthToken,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import BN from "bn.js";
@@ -20,7 +18,20 @@ export const TEE_HTTP     = "https://tee.magicblock.app";
 export const TEE_WSS      = "wss://tee.magicblock.app";
 export const PROGRAM_ID   = new PublicKey("F3jhJFLdcyzN9ssRuzHVuqgaMcUMyZF1PmvVfu8Hk2C6");
 
-// groupPdaFromId was removed from SDK; derive manually using same pattern as PERMISSION_SEED
+// The among_us program was compiled against THIS permission program (not the SDK's default)
+// Confirmed from on-chain error: Left=ACLseo… Right=BTWAqW…
+export const PERMISSION_PROGRAM_ID = new PublicKey("BTWAqWNBmF2TboMh3fxMJfgR16xGHYD7Kgr2dPwbRPBi");
+
+// Derive permission PDA using the CORRECT permission program address
+const PERMISSION_SEED = Buffer.from("permission:");
+function permissionPdaFromAccount(account) {
+  return PublicKey.findProgramAddressSync(
+    [PERMISSION_SEED, account.toBuffer()],
+    PERMISSION_PROGRAM_ID,
+  )[0];
+}
+
+// groupPdaFromId was removed from SDK; derive manually
 const GROUP_SEED = Buffer.from("group:");
 function groupPdaFromId(id) {
   return PublicKey.findProgramAddressSync(
