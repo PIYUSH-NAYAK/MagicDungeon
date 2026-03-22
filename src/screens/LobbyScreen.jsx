@@ -1,7 +1,7 @@
 import { useGame } from "../context/GameContext";
 
 export function LobbyScreen() {
-  const { room, isHost, myId, setReady, leaveRoom, startGame, chain, chainGameId, walletPublicKey } = useGame();
+  const { room, isHost, myId, setReady, leaveRoom, startGame, chain, chainGameId, walletPublicKey, onChainCreated } = useGame();
   const walletShort = walletPublicKey ? `${walletPublicKey.toBase58().slice(0,4)}…${walletPublicKey.toBase58().slice(-4)}` : "not connected";
   const teeActive   = !!chain?.teeToken;
 
@@ -121,7 +121,11 @@ export function LobbyScreen() {
         }}>
           <span title="Wallet">🔑 {walletShort}</span>
           <span style={{ opacity: .4 }}>│</span>
-          <span>📦 game #{chainGameId ? chainGameId.slice(-6) : "—"}</span>
+          <span style={{ color: onChainCreated ? "#2ecc71" : "rgba(255,255,255,.35)" }}>
+            {onChainCreated
+              ? `✓ on-chain #${chainGameId?.slice(-6) ?? "—"}`
+              : chainGameId ? `⏳ confirming #${chainGameId.slice(-6)}…` : "○ not created"}
+          </span>
           <span style={{ opacity: .4 }}>│</span>
           <span style={{ color: teeActive ? "#2ecc71" : "rgba(255,255,255,.3)" }}>
             {teeActive ? "⚡ TEE active" : "○ TEE pending"}

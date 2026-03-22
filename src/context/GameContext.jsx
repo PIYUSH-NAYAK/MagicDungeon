@@ -32,6 +32,7 @@ export function GameProvider({ children }) {
   const [meetingResult, setMeetingResult] = useState(null);
   const [winner, setWinner]             = useState(null);
   const [chainGameId, setChainGameId]   = useState(null);
+  const [onChainCreated, setOnChainCreated] = useState(false); // true once createGame/joinGame confirmed
   const [txLogs, setTxLogs]             = useState([]); // feeds ChainLog UI
   const [delegationProgress, setDelegProgess] = useState(null); // { delegated, total, players[] }
 
@@ -200,14 +201,17 @@ export function GameProvider({ children }) {
   // ── Auto on-chain: createGame when host's room+chainGameId are ready ────────
   useEffect(() => {
     if (!chainGameId || !room || !myId || myId !== room.hostId) return;
-    // Only fire once when chainGameId is first set with a valid room
-    chain.commands.createGame().catch(e => console.warn("[chain] createGame:", e.message));
+    chain.commands.createGame()
+      .then(() => setOnChainCreated(true))
+      .catch(e => console.warn("[chain] createGame:", e.message));
   }, [chainGameId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto on-chain: joinGame when non-host gets their chainGameId ─────────────
   useEffect(() => {
     if (!chainGameId || !room || !myId || myId === room.hostId) return;
-    chain.commands.joinGame().catch(e => console.warn("[chain] joinGame:", e.message));
+    chain.commands.joinGame()
+      .then(() => setOnChainCreated(true))
+      .catch(e => console.warn("[chain] joinGame:", e.message));
   }, [chainGameId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto on-chain: subscribe to ER WS when teeToken is ready ─────────────────
@@ -218,28 +222,33 @@ export function GameProvider({ children }) {
 
   // ── runDelegation: called from DelegatingScreen button click ──────────────
   // MUST be user-gesture initiated — Phantom blocks auto-fired useEffect transactions
-  async function runDelegation() {
+  // onStep(id) is called BEFORE each step begins so the UI can track progress.
+  // Step IDs (host):   createPermGame → delegateGame → createPermPlayer → delegatePlayer → authTee → done
+  // Step IDs (player): createPermPlayer → delegatePlayer → authTee → done
+  async function runDelegation(onStep) {
     const r = roomRef.current;
     if (!r || phase !== "delegating") return;
     try {
-      // Host also delegates the shared GameState
       if (myId === r.hostId) {
+        onStep?.("createPermGame");
         await chain.commands.createPermGame();
+        onStep?.("delegateGame");
         await chain.commands.delegateGame();
       }
-      // Every player delegates their own PlayerState
+      onStep?.("createPermPlayer");
       await chain.commands.createPermPlayer();
+      onStep?.("delegatePlayer");
       await chain.commands.delegatePlayer();
-      // Authenticate with TEE
+      onStep?.("authTee");
       await chain.commands.authTee();
-      // Signal server: this player is ready
+      onStep?.("done");
       sock()?.emit("playerDelegated", { code: r.code });
       console.log("[chain] delegation complete ✓");
     } catch (e) {
       console.error("[chain] delegation error:", e);
+      onStep?.("failed");
       setError(`Chain error: ${e.message}. Proceeding anyway.`);
       setTimeout(() => setError(null), 5000);
-      // Still signal so one player's error doesn't block everyone
       sock()?.emit("playerDelegated", { code: r.code });
     }
   }
@@ -410,6 +419,7 @@ export function GameProvider({ children }) {
       // ── On-chain (Solana / MagicBlock ER) ──
       chain,          // the full useAmongUsProgram instance
       chainGameId,
+      onChainCreated, // true once createGame / joinGame tx is confirmed
       walletPublicKey: publicKey,
       txLogs,
       delegationProgress,

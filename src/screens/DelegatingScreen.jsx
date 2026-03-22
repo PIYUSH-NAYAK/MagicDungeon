@@ -1,49 +1,65 @@
 import { useState } from "react";
 import { useGame } from "../context/GameContext";
 
-export function DelegatingScreen() {
-  const { delegationProgress, myId, room, walletPublicKey, runDelegation, isHost } = useGame();
-  const [signing, setSigning]     = useState(false);
-  const [myDone,  setMyDone]      = useState(false);
-  const [currentStep, setCurrentStep] = useState("");
+// Step definitions — id matches the onStep() keys emitted by runDelegation
+const HOST_STEPS = [
+  { id: "createPermGame",   label: "Create game permission (GameState PDA)" },
+  { id: "delegateGame",     label: "Delegate GameState to ER Validator" },
+  { id: "createPermPlayer", label: "Create player permission (PlayerState PDA)" },
+  { id: "delegatePlayer",   label: "Delegate PlayerState to ER Validator" },
+  { id: "authTee",          label: "TEE authentication (message sign)" },
+];
 
-  /* ── Step definitions ─────────────────────────────────────────── */
-  const hostSteps = [
-    "Create game permission (GameState PDA)",
-    "Delegate GameState to ER Validator",
-    "Create player permission (PlayerState PDA)",
-    "Delegate PlayerState to ER Validator",
-    "TEE authentication (message sign)",
-  ];
-  const playerSteps = [
-    "Create player permission (PlayerState PDA)",
-    "Delegate PlayerState to ER Validator",
-    "TEE authentication (message sign)",
-  ];
-  const steps = isHost ? hostSteps : playerSteps;
+const PLAYER_STEPS = [
+  { id: "createPermPlayer", label: "Create player permission (PlayerState PDA)" },
+  { id: "delegatePlayer",   label: "Delegate PlayerState to ER Validator" },
+  { id: "authTee",          label: "TEE authentication (message sign)" },
+];
+
+export function DelegatingScreen() {
+  const { delegationProgress, walletPublicKey, runDelegation, isHost } = useGame();
+
+  const [signing,          setSigning]          = useState(false);
+  const [myDone,           setMyDone]           = useState(false);
+  const [failed,           setFailed]           = useState(false);
+  // Index of the currently active step (-1 = not started yet)
+  const [activeStepIdx,    setActiveStepIdx]    = useState(-1);
+
+  const steps = isHost ? HOST_STEPS : PLAYER_STEPS;
+
+  /* ── onStep callback: called by runDelegation before each step ─────────── */
+  function onStep(stepId) {
+    if (stepId === "done") {
+      setMyDone(true);
+      setActiveStepIdx(steps.length); // all done
+      return;
+    }
+    if (stepId === "failed") {
+      setFailed(true);
+      return;
+    }
+    const idx = steps.findIndex(s => s.id === stepId);
+    if (idx !== -1) setActiveStepIdx(idx);
+  }
+
+  /* ── Sign handler ──────────────────────────────────────────────────────── */
+  async function handleSign() {
+    if (signing || myDone) return;
+    setSigning(true);
+    setFailed(false);
+    try {
+      await runDelegation(onStep);
+    } catch {
+      // runDelegation already calls onStep("failed") internally
+    } finally {
+      setSigning(false);
+    }
+  }
 
   const dp    = delegationProgress;
   const total = dp?.total    || 1;
   const done  = dp?.delegated || 0;
   const pct   = Math.round((done / total) * 100);
-
-  /* ── Sign handler ──────────────────────────────────────────────── */
-  async function handleSign() {
-    if (signing || myDone) return;
-    setSigning(true);
-    setCurrentStep(steps[0]);
-    try {
-      // Intercept each step label by hooking into progression
-      // runDelegation fires TXs sequentially — we update the label as each completes
-      await runDelegation();
-      setMyDone(true);
-      setCurrentStep("Done ✓");
-    } catch {
-      setCurrentStep("Failed — check console");
-    } finally {
-      setSigning(false);
-    }
-  }
 
   const walletShort = walletPublicKey
     ? `${walletPublicKey.toBase58().slice(0, 6)}…${walletPublicKey.toBase58().slice(-4)}`
@@ -75,11 +91,11 @@ export function DelegatingScreen() {
       {/* My signing card */}
       <div style={{
         background: "rgba(155,89,182,.08)",
-        border: `1px solid ${myDone ? "rgba(46,204,113,.4)" : "rgba(155,89,182,.25)"}`,
+        border: `1px solid ${myDone ? "rgba(46,204,113,.4)" : failed ? "rgba(231,76,60,.4)" : "rgba(155,89,182,.25)"}`,
         borderRadius: 18, padding: "1.5rem", width: "100%", maxWidth: 400,
         transition: "border-color .4s",
       }}>
-        {/* Wallet + TX count */}
+        {/* Wallet + TX count badge */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.1rem" }}>
           <span style={{ fontSize: ".72rem", color: "rgba(255,255,255,.35)", fontFamily: "monospace" }}>
             🔑 {walletShort}
@@ -95,33 +111,37 @@ export function DelegatingScreen() {
 
         {/* Steps checklist */}
         <div style={{ display: "flex", flexDirection: "column", gap: ".55rem", marginBottom: "1.2rem" }}>
-          {steps.map((s, i) => {
-            const stepDone = myDone || (signing && currentStep && steps.indexOf(currentStep) > i);
-            const stepActive = signing && currentStep === s;
+          {steps.map((step, i) => {
+            const isDone   = myDone || activeStepIdx > i;
+            const isActive = !myDone && activeStepIdx === i;
             return (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: ".65rem" }}>
+              <div key={step.id} style={{ display: "flex", alignItems: "center", gap: ".65rem" }}>
                 <div style={{
                   width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
-                  background: stepDone ? "rgba(46,204,113,.2)" : stepActive ? "rgba(155,89,182,.2)" : "rgba(255,255,255,.04)",
-                  border: `1.5px solid ${stepDone ? "#2ecc71" : stepActive ? "#9b59b6" : "rgba(255,255,255,.1)"}`,
+                  background: isDone   ? "rgba(46,204,113,.2)"
+                            : isActive ? "rgba(155,89,182,.2)"
+                            : "rgba(255,255,255,.04)",
+                  border: `1.5px solid ${isDone ? "#2ecc71" : isActive ? "#9b59b6" : "rgba(255,255,255,.1)"}`,
                   display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
-                  {stepDone ? <span style={{ fontSize: ".65rem", color: "#2ecc71" }}>✓</span>
-                    : stepActive ? <Spin />
+                  {isDone
+                    ? <span style={{ fontSize: ".65rem", color: "#2ecc71" }}>✓</span>
+                    : isActive
+                    ? <Spin />
                     : <span style={{ fontSize: ".6rem", color: "rgba(255,255,255,.2)" }}>{i + 1}</span>}
                 </div>
                 <span style={{
                   fontSize: ".82rem",
-                  color: stepDone ? "#a0ffa0" : stepActive ? "#c39bd3" : "rgba(255,255,255,.4)",
+                  color: isDone ? "#a0ffa0" : isActive ? "#c39bd3" : "rgba(255,255,255,.4)",
                 }}>
-                  {s}
+                  {step.label}
                 </span>
               </div>
             );
           })}
         </div>
 
-        {/* CTA button */}
+        {/* CTA */}
         {!myDone ? (
           <button
             onClick={handleSign}
@@ -145,6 +165,12 @@ export function DelegatingScreen() {
               Ready! Waiting for others…
             </p>
           </div>
+        )}
+
+        {failed && !myDone && (
+          <p style={{ color: "#e74c3c", fontSize: ".78rem", marginTop: ".6rem", textAlign: "center" }}>
+            ⚠ A step failed — check console. You may retry.
+          </p>
         )}
       </div>
 
@@ -172,9 +198,7 @@ export function DelegatingScreen() {
             }}>
               <div style={{ width: 9, height: 9, borderRadius: "50%", background: p.color }} />
               <span style={{ color: p.done ? "#a0ffa0" : "rgba(255,255,255,.45)" }}>{p.name}</span>
-              {p.done
-                ? <span style={{ color: "#2ecc71", fontSize: ".65rem" }}>✓</span>
-                : <Spin size={9} />}
+              {p.done ? <span style={{ color: "#2ecc71", fontSize: ".65rem" }}>✓</span> : <Spin size={9} />}
             </div>
           ))}
           {!dp && (
